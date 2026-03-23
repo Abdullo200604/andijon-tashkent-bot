@@ -63,23 +63,7 @@ async def announce_direction(message: Message, state: FSMContext):
 
 
 @router.message(TaxiAnnounceForm.ann_time)
-async def announce_time(message: Message, state: FSMContext):
-    if message.text == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("❌ Bekor qilindi.", reply_markup=taxi_menu())
-        return
-
-    await state.update_data(ann_time=message.text)
-    await state.set_state(TaxiAnnounceForm.ann_phone)
-    await message.answer(
-        "📞 Telefon raqamingizni kiriting:\n\n"
-        "(Misol: +998901234567)",
-        reply_markup=cancel_keyboard()
-    )
-
-
-@router.message(TaxiAnnounceForm.ann_phone)
-async def announce_phone(message: Message, state: FSMContext, bot: Bot):
+async def announce_time(message: Message, state: FSMContext, bot: Bot):
     if message.text == "❌ Bekor qilish":
         await state.clear()
         await message.answer("❌ Bekor qilindi.", reply_markup=taxi_menu())
@@ -87,10 +71,12 @@ async def announce_phone(message: Message, state: FSMContext, bot: Bot):
 
     data = await state.get_data()
     await state.clear()
+    
+    user = await get_user(message.from_user.id)
+    phone = user.get("phone", "Noma'lum")
 
     direction = data["direction"]
-    ann_time = data["ann_time"]
-    phone = message.text
+    ann_time = message.text
     taxi_name = message.from_user.full_name
     username = f"@{message.from_user.username}" if message.from_user.username else "—"
 
