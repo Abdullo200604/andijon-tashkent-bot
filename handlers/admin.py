@@ -150,6 +150,12 @@ async def admin_apply_balance(message: Message, state: FSMContext):
     await state.clear()
 
 
+@router.callback_query(F.data.startswith("admin_add_sub:"))
+async def admin_add_sub_manual(call: CallbackQuery, state: FSMContext):
+    days = int(call.data.split(":")[1])
+    data = await state.get_data()
+    target_id = data.get("target_user_id")
+    
     await add_subscription(target_id, f"Manual {days} kun", days)
     await call.message.answer(f"✅ Foydalanuvchiga {days} kunlik obuna berildi.")
     await call.answer()
