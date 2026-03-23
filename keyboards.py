@@ -110,6 +110,22 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def admin_stats_keyboard() -> InlineKeyboardMarkup:
+    """Statistika davrini tanlash"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 Bugun (24s)", callback_data="stats_1")],
+        [InlineKeyboardButton(text="🗓 Shu hafta (7 kun)", callback_data="stats_7")],
+        [InlineKeyboardButton(text="📅 Shu oy (30 kun)", callback_data="stats_30")],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_cancel")],
+    ])
+
+
+def back_to_admin() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_cancel")]
+    ])
+
+
 def admin_payment_keyboard(payment_id: int, used_discount: int = 0) -> InlineKeyboardMarkup:
     """Admin uchun tasdiqlash/rad etish tugmalari"""
     return InlineKeyboardMarkup(inline_keyboard=[

@@ -182,6 +182,20 @@ async def get_all_users(role: str = None):
             return await cursor.fetchall()
 
 
+async def get_user_by_search(search: str):
+    """ID yoki Username orqali foydalanuvchini topish"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if search.startswith("@"):
+            username = search[1:]
+            async with db.execute("SELECT * FROM users WHERE username = ?", (username,)) as cursor:
+                return await cursor.fetchone()
+        elif search.isdigit():
+            async with db.execute("SELECT * FROM users WHERE telegram_id = ?", (int(search),)) as cursor:
+                return await cursor.fetchone()
+        return None
+
+
 
 async def count_users_by_role(role: str) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -247,6 +261,13 @@ async def count_active_subscriptions() -> int:
         """) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else 0
+
+
+async def delete_subscription(user_id: int):
+    """Foydalanuvchi obunasini o'chirish"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE subscriptions SET status = 'expired' WHERE user_id = ? AND status = 'active'", (user_id,))
+        await db.commit()
 
 
 async def get_all_active_taxi_ids() -> list[int]:
@@ -393,3 +414,35 @@ async def count_orders() -> int:
         async with db.execute("SELECT COUNT(*) FROM orders") as cursor:
             row = await cursor.fetchone()
             return row[0] if row else 0
+
+
+async def get_stats_by_period(days: int):
+    """Ma'lum kunlik statistikani qaytaradi"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Yangi foydalanuvchilar
+        async with db.execute(
+            "SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', ?)", (f'-{days} days',)
+        ) as cursor:
+            new_users = (await cursor.fetchone())[0]
+
+        # Yangi buyurtmalar
+        async with db.execute(
+            "SELECT COUNT(*) FROM orders WHERE created_at >= datetime('now', ?)", (f'-{days} days',)
+        ) as cursor:
+            new_orders = (await cursor.fetchone())[0]
+
+        # Tasdiqlangan to'lovlar va ularning summasi
+        async with db.execute("""
+            SELECT COUNT(*), SUM(amount) FROM payments 
+            WHERE status = 'approved' AND created_at >= datetime('now', ?)
+        """, (f'-{days} days',)) as cursor:
+            res = await cursor.fetchone()
+            payment_count = res[0]
+            payment_sum = res[1] or 0
+
+        return {
+            "new_users": new_users,
+            "new_orders": new_orders,
+            "payment_count": payment_count,
+            "payment_sum": payment_sum
+        }

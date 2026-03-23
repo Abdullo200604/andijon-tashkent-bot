@@ -4,13 +4,12 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_ID
-from database import (
     get_payment, update_payment_status, add_subscription, get_user,
     count_users_by_role, count_active_subscriptions, count_payments, count_orders,
     deduct_discount_balance, update_balance, get_tariffs, update_tariff,
-    get_all_users, get_all_orders
+    get_all_users, get_all_orders, get_stats_by_period, get_user_by_search, delete_subscription
 )
-from keyboards import admin_panel_keyboard, admin_payment_keyboard
+from keyboards import admin_panel_keyboard, admin_payment_keyboard, admin_stats_keyboard, back_to_admin
 from states import AdminState
 
 router = Router()
@@ -36,23 +35,31 @@ async def admin_panel(message: Message):
 # ─── STATISTIKA ───────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "admin_stats")
-async def admin_stats_callback(call: CallbackQuery):
-    clients = await count_users_by_role("client")
-    taxis = await count_users_by_role("taxi")
-    active_subs = await count_active_subscriptions()
-    payments = await count_payments()
-    orders = await count_orders()
+async def admin_stats_menu_callback(call: CallbackQuery):
+    await call.message.edit_text(
+        "📊 <b>Statistika bo'limi</b>\n\nDavrni tanlang:",
+        parse_mode="HTML",
+        reply_markup=admin_stats_keyboard()
+    )
+    await call.answer()
 
+
+@router.callback_query(F.data.startswith("stats_"))
+async def admin_stats_detail_callback(call: CallbackQuery):
+    days = int(call.data.split("_")[1])
+    stats = await get_stats_by_period(days)
+    
+    period_text = "Bugungi" if days == 1 else "Haftalik" if days == 7 else "Oylik"
+    
     text = (
-        f"📊 <b>Bot statistikasi</b>\n\n"
-        f"👤 Mijozlar: <b>{clients}</b>\n"
-        f"🚕 Taxi haydovchilar: <b>{taxis}</b>\n"
-        f"✅ Faol obunalar: <b>{active_subs}</b>\n"
-        f"💳 Tasdiqlangan to'lovlar: <b>{payments}</b>\n"
-        f"📦 Jami buyurtmalar: <b>{orders}</b>"
+        f"📊 <b>{period_text} statistika</b> ({days} kun):\n\n"
+        f"👤 Yangi foydalanuvchilar: <b>{stats['new_users']}</b>\n"
+        f"📦 Yangi buyurtmalar: <b>{stats['new_orders']}</b>\n"
+        f"💳 Tasdiqlangan to'lovlar: <b>{stats['payment_count']}</b>\n"
+        f"💰 Umumiy tushum: <b>{stats['payment_sum']:,} so'm</b>"
     )
     
-    await call.message.edit_text(text, parse_mode="HTML", reply_markup=admin_panel_keyboard())
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=admin_stats_keyboard())
     await call.answer()
 
 
@@ -90,22 +97,15 @@ async def admin_users_menu(call: CallbackQuery, state: FSMContext):
 @router.message(AdminState.waiting_user_id)
 async def admin_find_user(message: Message, state: FSMContext):
     search = message.text.strip()
-    user = None
-    
-    if search.startswith("@"):
-        username = search[1:]
-        all_users = await get_all_users()
-        user = next((u for u in all_users if u["username"] == username), None)
-    elif search.isdigit():
-        user = await get_user(int(search))
+    user = await get_user_by_search(search)
     
     if not user:
-        await message.answer("❌ Foydalanuvchi topilmadi. Qayta urinib ko'ring yoki ID yozing:")
+        await message.answer("❌ Foydalanuvchi topilmadi. Qayta urinib ko'ring (ID yoki @username):")
         return
 
-    await state.update_data(target_user_id=user["telegram_id"])
-    
     user_dict = dict(user)
+    await state.update_data(target_user_id=user_dict["telegram_id"])
+    
     text = (
         f"👤 <b>Foydalanuvchi ma'lumoti</b>\n\n"
         f"ID: <code>{user_dict['telegram_id']}</code>\n"
@@ -121,6 +121,7 @@ async def admin_find_user(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="💰 Balansni o'zgartirish", callback_data="admin_edit_balance")],
         [InlineKeyboardButton(text="➕ 1 kunlik obuna", callback_data=f"admin_add_sub:1")],
         [InlineKeyboardButton(text="➕ 30 kunlik obuna", callback_data=f"admin_add_sub:30")],
+        [InlineKeyboardButton(text="❌ Obunani o'chirish", callback_data="admin_del_sub")],
         [InlineKeyboardButton(text="🔙 Admin panel", callback_data="admin_cancel")],
     ])
     
@@ -149,14 +150,17 @@ async def admin_apply_balance(message: Message, state: FSMContext):
     await state.clear()
 
 
-@router.callback_query(F.data.startswith("admin_add_sub:"))
-async def admin_add_sub_manual(call: CallbackQuery, state: FSMContext):
-    days = int(call.data.split(":")[1])
-    data = await state.get_data()
-    target_id = data.get("target_user_id")
-    
     await add_subscription(target_id, f"Manual {days} kun", days)
     await call.message.answer(f"✅ Foydalanuvchiga {days} kunlik obuna berildi.")
+    await call.answer()
+
+
+@router.callback_query(F.data == "admin_del_sub")
+async def admin_del_sub_handler(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    target_id = data.get("target_user_id")
+    await delete_subscription(target_id)
+    await call.message.answer("✅ Obuna o'chirildi (expired holatiga o'tkazildi).")
     await call.answer()
 
 
