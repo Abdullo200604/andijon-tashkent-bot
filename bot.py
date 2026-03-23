@@ -1,14 +1,12 @@
-import asyncio
-import logging
-
+import os
 import socket
-import aiohttp
-from aiogram import Bot, Dispatcher, types
-from aiogram.client.session.aiohttp import AiohttpSession
+import logging
+import asyncio
+from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message
+from aiohttp import web
 
 from config import BOT_TOKEN_1, BOT_TOKEN_2
 from database import init_db
@@ -51,11 +49,23 @@ async def main():
 
     logging.info("🚀 Botlar ishga tushmoqda...")
 
-    # Ikkala bot uchun ham ulanishni tekshirish
+    # Ikkala bot uchun ham ulanishni tekshirish va ma'lumotlarni sozlash
     for bot in [bot1, bot2]:
         for attempt in range(3):
             try:
                 await bot.delete_webhook(drop_pending_updates=True)
+                
+                # Bot ma'lumotlarini sozlash
+                await bot.set_my_name("Andijon Toshkent Taxi 🚕")
+                await bot.set_my_description(
+                    "Andijon va Toshkent yo'nalishi bo'yicha eng tezkor taksi botiga xush kelibsiz! \n\n"
+                    "Bu yerda siz: \n"
+                    "✅ Mijoz sifatida buyurtma berishingiz \n"
+                    "✅ Taxi haydovchisi sifatida e'lon qoldirishingiz mumkin. \n\n"
+                    "Xizmat mutlaqo xavfsiz va tezkor!"
+                )
+                await bot.set_my_short_description("Andijon-Tashkent yo'nalishidagi eng zo'r taksi boti! 🚖")
+
                 logging.info(f"✅ Telegram API bilan ulanish o'rnatildi (Bot ID: {bot.id})")
                 break
             except Exception as e:
@@ -65,11 +75,24 @@ async def main():
                 else:
                     logging.error(f"❌ Bot ID: {bot.id} ulanib bo'lmadi.")
 
+    # Render uchun kichik web-server (Render portni eshitishni talab qiladi)
+    async def handle(request):
+        return web.Response(text="Bot is running!")
+
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 8080)))
+    await site.start()
+    logging.info(f"🌐 Web server ishga tushdi (Port: {os.getenv('PORT', 8080)})")
+
     try:
         await dp.start_polling(bot1, bot2)
     finally:
         await bot1.session.close()
         await bot2.session.close()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
