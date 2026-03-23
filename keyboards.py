@@ -159,6 +159,17 @@ def passengers_keyboard() -> ReplyKeyboardMarkup:
         one_time_keyboard=True,
     )
 
+def location_keyboard() -> ReplyKeyboardMarkup:
+    """Lakatsiya yuborish tugmasi"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📍 Manzilni yuborish", request_location=True)],
+            [KeyboardButton(text="❌ Bekor qilish")],
+        ],
+        resize_keyboard=True
+    )
+
+
 def cabinet_keyboard(role: str) -> InlineKeyboardMarkup:
     """Kabinet menyusi"""
     buttons = [
@@ -174,4 +185,5 @@ def back_to_cabinet() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Orqaga", callback_data="cabinet")]
     ])
+
 
