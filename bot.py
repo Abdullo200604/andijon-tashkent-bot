@@ -56,15 +56,18 @@ async def main():
                 await bot.delete_webhook(drop_pending_updates=True)
                 
                 # Bot ma'lumotlarini sozlash
-                await bot.set_my_name("Andijon Toshkent Taxi 🚕")
-                await bot.set_my_description(
-                    "Andijon va Toshkent yo'nalishi bo'yicha eng tezkor taksi botiga xush kelibsiz! \n\n"
-                    "Bu yerda siz: \n"
-                    "✅ Mijoz sifatida buyurtma berishingiz \n"
-                    "✅ Taxi haydovchisi sifatida e'lon qoldirishingiz mumkin. \n\n"
-                    "Xizmat mutlaqo xavfsiz va tezkor!"
-                )
-                await bot.set_my_short_description("Andijon-Tashkent yo'nalishidagi eng zo'r taksi boti! 🚖")
+                try:
+                    await bot.set_my_name("Andijon Toshkent Taxi 🚕")
+                    await bot.set_my_description(
+                        "Andijon va Toshkent yo'nalishi bo'yicha eng tezkor taksi botiga xush kelibsiz! \n\n"
+                        "Bu yerda siz: \n"
+                        "✅ Mijoz sifatida buyurtma berishingiz \n"
+                        "✅ Taxi haydovchisi sifatida e'lon qoldirishingiz mumkin. \n\n"
+                        "Xizmat mutlaqo xavfsiz va tezkor!"
+                    )
+                    await bot.set_my_short_description("Andijon-Tashkent yo'nalishidagi eng zo'r taksi boti! 🚖")
+                except Exception as e:
+                    logging.warning(f"Name/Description sozlashda xato (e'tiborsiz qoldiriladi): {e}")
 
                 logging.info(f"✅ Telegram API bilan ulanish o'rnatildi (Bot ID: {bot.id})")
                 break
