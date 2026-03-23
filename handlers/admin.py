@@ -1,13 +1,17 @@
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
 
-from config import ADMIN_ID, TARIFFS
+from config import ADMIN_ID
 from database import (
     get_payment, update_payment_status, add_subscription, get_user,
     count_users_by_role, count_active_subscriptions, count_payments, count_orders,
-    deduct_discount_balance
+    deduct_discount_balance, update_balance, get_tariffs, update_tariff,
+    get_all_users, get_all_orders
 )
+from keyboards import admin_panel_keyboard, admin_payment_keyboard
+from states import AdminState
 
 router = Router()
 
@@ -16,138 +20,238 @@ def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
 
-# ─── STATISTIKA ───────────────────────────────────────────────────────────────
-
-@router.message(Command("stats"))
-async def admin_stats(message: Message):
+@router.message(Command("admin"))
+async def admin_panel(message: Message):
     if not is_admin(message.from_user.id):
-        await message.answer("❌ Bu buyruq faqat admin uchun.")
         return
 
+    await message.answer(
+        "👑 <b>Bosh admin paneli</b>\n\n"
+        "Quyidagi bo'limlardan birini tanlang:",
+        parse_mode="HTML",
+        reply_markup=admin_panel_keyboard()
+    )
+
+
+# ─── STATISTIKA ───────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_stats")
+async def admin_stats_callback(call: CallbackQuery):
     clients = await count_users_by_role("client")
     taxis = await count_users_by_role("taxi")
     active_subs = await count_active_subscriptions()
     payments = await count_payments()
     orders = await count_orders()
 
-    await message.answer(
+    text = (
         f"📊 <b>Bot statistikasi</b>\n\n"
         f"👤 Mijozlar: <b>{clients}</b>\n"
         f"🚕 Taxi haydovchilar: <b>{taxis}</b>\n"
         f"✅ Faol obunalar: <b>{active_subs}</b>\n"
         f"💳 Tasdiqlangan to'lovlar: <b>{payments}</b>\n"
-        f"📦 Jami buyurtmalar: <b>{orders}</b>",
-        parse_mode="HTML"
+        f"📦 Jami buyurtmalar: <b>{orders}</b>"
     )
+    
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=admin_panel_keyboard())
+    await call.answer()
 
 
-# ─── TO'LOV TASDIQLASH ────────────────────────────────────────────────────────
+# ─── BUYURTMALAR ──────────────────────────────────────────────────────────────
 
-@router.callback_query(F.data.startswith("approve:"))
-async def approve_payment(call: CallbackQuery, bot: Bot):
-    if not is_admin(call.from_user.id):
-        await call.answer("❌ Ruxsatsiz!", show_alert=True)
+@router.callback_query(F.data == "admin_orders")
+async def admin_orders_list(call: CallbackQuery):
+    orders = await get_all_orders(limit=15)
+    if not orders:
+        await call.answer("Buyurtmalar hali yo'q.")
         return
 
+    text = "📦 <b>Oxirgi 15 ta buyurtma:</b>\n\n"
+    for o in orders:
+        status_icon = "✅" if o["status"] == "taken" else "⏳"
+        text += f"{status_icon} #{o['id']} | {o['from_loc']} ➔ {o['to_loc']} | {o['price']} so'm\n"
+
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=admin_panel_keyboard())
+    await call.answer()
+
+
+# ─── FOYDALANUVCHILARNI BOSHQARISH ──────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_users")
+async def admin_users_menu(call: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminState.waiting_user_id)
+    await call.message.edit_text(
+        "🔍 Foydalanuvchini topish uchun uning <b>Telegram ID</b> sini yoki <b>Username</b> ini yozing (+ @ belgisi bilan):",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_cancel")]])
+    )
+    await call.answer()
+
+
+@router.message(AdminState.waiting_user_id)
+async def admin_find_user(message: Message, state: FSMContext):
+    search = message.text.strip()
+    user = None
+    
+    if search.startswith("@"):
+        username = search[1:]
+        all_users = await get_all_users()
+        user = next((u for u in all_users if u["username"] == username), None)
+    elif search.isdigit():
+        user = await get_user(int(search))
+    
+    if not user:
+        await message.answer("❌ Foydalanuvchi topilmadi. Qayta urinib ko'ring yoki ID yozing:")
+        return
+
+    await state.update_data(target_user_id=user["telegram_id"])
+    
+    text = (
+        f"👤 <b>Foydalanuvchi ma'lumoti</b>\n\n"
+        f"ID: <code>{user['telegram_id']}</code>\n"
+        f"Ism: {user['full_name']}\n"
+        f"Username: @{user['username'] if user['username'] else '—'}\n"
+        f"Telefon: {user['phone']}\n"
+        f"Rol: {user['role']}\n"
+        f"Asosiy Balans: {user.get('balance', 0):,} so'm\n"
+        f"Bonus Balans: {user.get('discount_balance', 0):,} so'm\n"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💰 Balansni o'zgartirish", callback_data="admin_edit_balance")],
+        [InlineKeyboardButton(text="➕ 1 kunlik obuna", callback_data=f"admin_add_sub:1")],
+        [InlineKeyboardButton(text="➕ 30 kunlik obuna", callback_data=f"admin_add_sub:30")],
+        [InlineKeyboardButton(text="🔙 Admin panel", callback_data="admin_cancel")],
+    ])
+    
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "admin_edit_balance")
+async def admin_pre_edit_balance(call: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminState.waiting_balance_amount)
+    await call.message.answer("Summani yozing (masalan, 50000 qo'shish uchun <code>50000</code>, ayirish uchun <code>-10000</code>):", parse_mode="HTML")
+    await call.answer()
+
+
+@router.message(AdminState.waiting_balance_amount)
+async def admin_apply_balance(message: Message, state: FSMContext):
+    if not message.text.replace("-", "").isdigit():
+        await message.answer("❌ Faqat raqam kiriting.")
+        return
+    
+    amount = int(message.text)
+    data = await state.get_data()
+    target_id = data.get("target_user_id")
+    
+    await update_balance(target_id, amount)
+    await message.answer(f"✅ Balans {amount:,} so'mga o'zgartirildi.", reply_markup=admin_panel_keyboard())
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin_add_sub:"))
+async def admin_add_sub_manual(call: CallbackQuery, state: FSMContext):
+    days = int(call.data.split(":")[1])
+    data = await state.get_data()
+    target_id = data.get("target_user_id")
+    
+    await add_subscription(target_id, f"Manual {days} kun", days)
+    await call.message.answer(f"✅ Foydalanuvchiga {days} kunlik obuna berildi.")
+    await call.answer()
+
+
+# ─── TARIFLARNI BOSHQARISH ──────────────────────────────────────────────
+
+@router.callback_query(F.data == "admin_tariffs")
+async def admin_tariffs_list(call: CallbackQuery):
+    tariffs = await get_tariffs()
+    text = "⚙️ <b>Tariflar narxini o'zgartirish:</b>\n\n"
+    kb_btns = []
+    for t in tariffs:
+        text += f"• {t['name']}: {t['price']:,} so'm\n"
+        kb_btns.append([InlineKeyboardButton(text=f"✏️ {t['name']} ni tahrirlash", callback_data=f"edit_t:{t['key']}")])
+    
+    kb_btns.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_cancel")])
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_btns))
+
+
+@router.callback_query(F.data.startswith("edit_t:"))
+async def admin_edit_tariff_start(call: CallbackQuery, state: FSMContext):
+    key = call.data.split(":")[1]
+    await state.update_data(edit_tariff_key=key)
+    await state.set_state(AdminState.waiting_tariff_price)
+    await call.message.answer(f"Ushbu tarif uchun yangi narxni kiriting (faqat raqam):")
+    await call.answer()
+
+
+@router.message(AdminState.waiting_tariff_price)
+async def admin_apply_tariff_price(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("❌ Faqat raqam kiriting.")
+        return
+    
+    price = int(message.text)
+    data = await state.get_data()
+    key = data.get("edit_tariff_key")
+    
+    tariffs = await get_tariffs()
+    t = next((t for t in tariffs if t["key"] == key), None)
+    if t:
+        await update_tariff(key, price, t["days"])
+        await message.answer(f"✅ {t['name']} narxi {price:,} so'mga o'zgartirildi.", reply_markup=admin_panel_keyboard())
+    
+    await state.clear()
+
+
+# ─── TO'LOVLARNI TASDIQLASH (CALLBACKS FROM SUBSCRIPTION) ──────────────────
+
+@router.callback_query(F.data.startswith("approve:"))
+async def approve_payment_handler(call: CallbackQuery, bot: Bot):
     parts = call.data.split(":")
     payment_id = int(parts[1])
     used_discount = int(parts[2]) if len(parts) > 2 else 0
     
     payment = await get_payment(payment_id)
-
-    if not payment:
-        await call.answer("❌ To'lov topilmadi.", show_alert=True)
+    if not payment or payment["status"] != "pending":
+        await call.answer("⚠️ Bu to'lov ko'rib chiqilgan yoki topilmadi.", show_alert=True)
         return
 
-    if payment["status"] != "pending":
-        await call.answer("⚠️ Bu to'lov allaqachon ko'rib chiqilgan.", show_alert=True)
-        return
-
-    # To'lov tasdiqlash
     await update_payment_status(payment_id, "approved")
     
-    # Chegirmani yechish
     if used_discount > 0:
         await deduct_discount_balance(payment["user_id"], used_discount)
 
-    # Obuna qo'shish
-    tariff = TARIFFS.get(payment["tariff"])
-    if tariff:
-        await add_subscription(payment["user_id"], tariff["name"], tariff["days"])
+    tariffs = await get_tariffs()
+    t = next((t for t in tariffs if t["key"] == payment["tariff"]), None)
+    if t:
+        await add_subscription(payment["user_id"], t["name"], t["days"])
+        # Taxiga xabar
+        try:
+            await bot.send_message(
+                payment["user_id"],
+                f"✅ <b>To'lovingiz tasdiqlandi!</b>\n\n📦 Tarif: {t['name']}\nEndi e'lon berishingiz mumkin! 🚕",
+                parse_mode="HTML"
+            )
+        except: pass
 
-    # Taxiga xabar
-    try:
-        from datetime import datetime, timedelta
-        end_date = (datetime.now() + timedelta(days=tariff["days"])).strftime("%d.%m.%Y")
-        await bot.send_message(
-            payment["user_id"],
-            f"✅ <b>Obunangiz faollashtirildi!</b>\n\n"
-            f"📦 Tarif: {tariff['name']}\n"
-            f"📅 Tugash sanasi: {end_date}\n\n"
-            f"Endi buyurtma qabul qila olasiz! 🚕",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-
-    # Admin xabarini yangilash
-    await call.message.edit_text(
-        call.message.text + "\n\n✅ <b>TASDIQLANGAN</b>",
-        parse_mode="HTML"
-    )
-    await call.answer("✅ To'lov tasdiqlandi!")
+    await call.message.edit_text(call.message.text + "\n\n✅ <b>TASDIQLANGAN (ID: " + str(payment_id) + ")</b>")
+    await call.answer("Tasdiqlandi!")
 
 
 @router.callback_query(F.data.startswith("reject:"))
-async def reject_payment(call: CallbackQuery, bot: Bot):
-    if not is_admin(call.from_user.id):
-        await call.answer("❌ Ruxsatsiz!", show_alert=True)
-        return
-
+async def reject_payment_handler(call: CallbackQuery, bot: Bot):
     payment_id = int(call.data.split(":")[1])
     payment = await get_payment(payment_id)
-
-    if not payment:
-        await call.answer("❌ To'lov topilmadi.", show_alert=True)
-        return
-
-    if payment["status"] != "pending":
-        await call.answer("⚠️ Bu to'lov allaqachon ko'rib chiqilgan.", show_alert=True)
-        return
-
-    await update_payment_status(payment_id, "rejected")
-
-    # Taxiga xabar
-    try:
-        await bot.send_message(
-            payment["user_id"],
-            "❌ <b>To'lovingiz tasdiqlanmadi.</b>\n\n"
-            "Sabab: To'lov topilmadi yoki noto'g'ri miqdor.\n\n"
-            "Iltimos, qayta urinib ko'ring yoki admin bilan bog'laning.",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-
-    await call.message.edit_text(
-        call.message.text + "\n\n❌ <b>RAD ETILGAN</b>",
-        parse_mode="HTML"
-    )
-    await call.answer("❌ To'lov rad etildi.")
+    if payment:
+        await update_payment_status(payment_id, "rejected")
+        try:
+            await bot.send_message(payment["user_id"], "❌ To'lovingiz rad etildi.")
+        except: pass
+    await call.message.edit_text(call.message.text + "\n\n❌ <b>RAD ETILDI</b>")
+    await call.answer("Rad etildi.")
 
 
-# ─── ADMIN PANELI ─────────────────────────────────────────────────────────────
-
-@router.message(Command("admin"))
-async def admin_panel(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ Ruxsatsiz!")
-        return
-
-    await message.answer(
-        "👑 <b>Admin paneli</b>\n\n"
-        "/stats — Statistika\n"
-        "/admin — Ushbu menyu\n\n"
-        "To'lovlar avtomatik kelib tushadi — tasdiqlash uchun tugmalarni bosing.",
-        parse_mode="HTML"
-    )
+@router.callback_query(F.data == "admin_cancel")
+async def admin_cancel_handler(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await call.message.edit_text("Bosh admin paneli", reply_markup=admin_panel_keyboard())
+    await call.answer()

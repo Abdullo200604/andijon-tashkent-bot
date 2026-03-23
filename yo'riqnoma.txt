@@ -1,0 +1,11 @@
+Botingiz Telegram umumiy qidiruvida (Global Search) darhol chiqmasligiga quyidagi sabablar bo'lishi mumkin:
+
+1. Bot yangi yaratilgan: Telegram yangi botlarni qidiruv tizimida indeksatsiya (topiladigan qilish) uchun biroz vaqt talab etadi. Bot qanchalik faol bo'lsa va ko'p odam ishlatsa, u shuncha tez qidiruvda ko'rinib qoladi.
+2. Bot "Inline Mode" yoqilmagan bo'lishi: BotFather orqali `/setinline` qilib botingizga qisqa matn yozib qo'yish qidiruvda chiqishiga ijobiy ta'sir ko'rsatadi.
+3. Obunachilar soni: Telegram algoritmlari ko'proq real foydalanuvchisi bor botlarni qidiruvda teparoqqa chiqaradi.
+4. Nomi va Username: Agar userlar to'liq `@andijon_taksilari_bot` (yoki botingiz usernameni) yozsa, u 100% chiqadi. Ammo faqat "taksi" deb yozsa, botingiz qachonki reytingi oshsa, keyin ro'yxatda yuqoriga chiqib boradi.
+
+Nima qilish kerak?
+- Botga ko'proq foydalanuvchi jalb eting (masalan bot havolasini guruhlarga tarqating).
+- BotFather da bot tavsifiga (About, Description) "Andijon Toshkent taksi", "Taksi chaqirish" kabi qidirilishi mumkin bo'lgan so'zlarni batafsil yozing.
+- Shunchaki ozroq vaqt kuting (1-2 hafta), u o'z-o'zidan qidiruv bazasiga qo'shilib oladi.

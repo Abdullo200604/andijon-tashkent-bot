@@ -57,12 +57,25 @@ async def init_db():
                 order_time TEXT,
                 price      TEXT,
                 phone      TEXT,
+                passengers TEXT,
                 status     TEXT DEFAULT 'pending',  -- 'pending', 'taken', 'expired'
                 taken_by   INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (client_id) REFERENCES users(telegram_id)
             )
         """)
+
+        # Tariflar jadvali (boshqariladigan)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tariffs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                key        TEXT UNIQUE,
+                name       TEXT,
+                price      INTEGER,
+                days       INTEGER
+            )
+        """)
+
 
         # Versiya yangilash (agar ustunlar bo'lmasa qo'shish)
         try:
@@ -78,6 +91,11 @@ async def init_db():
 
         try:
             await db.execute("ALTER TABLE orders ADD COLUMN passengers TEXT")
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0")
         except aiosqlite.OperationalError:
             pass
 
@@ -141,6 +159,27 @@ async def deduct_discount_balance(telegram_id: int, amount: int):
             WHERE telegram_id = ?
         """, (amount, telegram_id))
         await db.commit()
+
+async def update_balance(telegram_id: int, amount: int):
+    """Foydalanuvchi asosiy balansiga pul qo'shish yoki yechish (manfiy amount bilan)"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE users SET balance = COALESCE(balance, 0) + ? 
+            WHERE telegram_id = ?
+        """, (amount, telegram_id))
+        await db.commit()
+
+async def get_all_users(role: str = None):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        query = "SELECT * FROM users"
+        params = []
+        if role:
+            query += " WHERE role = ?"
+            params.append(role)
+        query += " ORDER BY created_at DESC"
+        async with db.execute(query, params) as cursor:
+            return await cursor.fetchall()
 
 
 
@@ -260,15 +299,13 @@ async def count_payments() -> int:
 
 # ─── ORDERS ───────────────────────────────────────────────────────────────────
 
-async def create_order(client_id: int, from_loc: str, to_loc: str,
-                       order_time: str, price: str, phone: str,
-                       latitude: float = None, longitude: float = None) -> int:
+async def create_order(client_id: int, from_loc: str, to_loc: str, order_time: str, price: str, phone: str, latitude: float = None, longitude: float = None, passengers: str = None) -> int:
     """Yangi buyurtma yaratish"""
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("""
-            INSERT INTO orders (client_id, from_loc, to_loc, latitude, longitude, order_time, price, phone)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (client_id, from_loc, to_loc, latitude, longitude, order_time, price, phone))
+            INSERT INTO orders (client_id, from_loc, to_loc, latitude, longitude, order_time, price, phone, passengers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (client_id, from_loc, to_loc, latitude, longitude, order_time, price, phone, passengers))
         await db.commit()
         return cursor.lastrowid
 
@@ -297,6 +334,57 @@ async def expire_order(order_id: int):
             UPDATE orders SET status = 'expired'
             WHERE id = ? AND status = 'pending'
         """, (order_id,))
+        await db.commit()
+
+async def get_client_orders(client_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM orders WHERE client_id = ? ORDER BY created_at DESC LIMIT 20", (client_id,)
+        ) as cursor:
+            return await cursor.fetchall()
+
+async def get_taxi_orders(taxi_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM orders WHERE taken_by = ? ORDER BY created_at DESC LIMIT 20", (taxi_id,)
+        ) as cursor:
+            return await cursor.fetchall()
+
+async def get_all_orders(limit: int = 50):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM orders ORDER BY created_at DESC LIMIT ?", (limit,)
+        ) as cursor:
+            return await cursor.fetchall()
+
+# ─── TARIFFS ──────────────────────────────────────────────────────────────────
+
+async def get_tariffs():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM tariffs ORDER BY price ASC") as cursor:
+            rows = await cursor.fetchall()
+            if not rows:
+                # Agar jadval bo'sh bo'lsa defaultlarni qo'shib qo'yamiz
+                await db.executemany(
+                    "INSERT INTO tariffs (key, name, price, days) VALUES (?, ?, ?, ?)",
+                    [
+                        ("day", "1 kunlik", 15000, 1),
+                        ("week", "1 haftalik", 50000, 7),
+                        ("month", "1 oylik", 150000, 30),
+                    ]
+                )
+                await db.commit()
+                async with db.execute("SELECT * FROM tariffs ORDER BY price ASC") as cur2:
+                    rows = await cur2.fetchall()
+            return rows
+
+async def update_tariff(key: str, price: int, days: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE tariffs SET price = ?, days = ? WHERE key = ?", (price, days, key))
         await db.commit()
 
 

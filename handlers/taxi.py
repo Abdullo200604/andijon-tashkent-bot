@@ -3,10 +3,10 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from config import GROUP_ID
-from database import get_user, get_active_subscription
-from keyboards import taxi_menu, cancel_keyboard, subscription_keyboard, tariff_keyboard
+from database import get_user, get_active_subscription, get_taxi_orders
+from keyboards import taxi_menu, cancel_keyboard, subscription_keyboard, tariff_keyboard, cabinet_keyboard, back_to_cabinet
 from states import TaxiAnnounceForm
-from utils import is_valid_phone, is_valid_time, is_valid_location_name
+from utils import is_valid_location_name
 
 router = Router()
 
@@ -21,15 +21,14 @@ def _taxi_only(user) -> bool:
 async def announce_start(message: Message, state: FSMContext):
     user = await get_user(message.from_user.id)
     if not _taxi_only(user):
-        await message.answer("❌ Bu bo'lim faqat taxi haydovchilar uchun.")
         return
 
     # Obuna tekshiruvi
     sub = await get_active_subscription(message.from_user.id)
     if not sub:
         await message.answer(
-            "❌ E'lon berish uchun faol obuna kerak!\n\n"
-            "💳 Obuna sotib olish uchun: <b>Obuna</b> tugmasini bosing.",
+            "❌ <b>E'lon berish uchun faol obuna kerak!</b>\n\n"
+            "💳 Obuna sotib olish uchun: <b>Kabinet</b> bo'limiga o'ting.",
             parse_mode="HTML"
         )
         return
@@ -88,64 +87,84 @@ async def announce_time(message: Message, state: FSMContext, bot: Bot):
         f"👤 {taxi_name} ({username})"
     )
 
-    # Guruhga yuborish
     try:
         await bot.send_message(GROUP_ID, text, parse_mode="HTML")
-        await message.answer(
-            "✅ E'loningiz guruhga muvaffaqiyatli yuborildi!",
-            reply_markup=taxi_menu()
-        )
+        await message.answer("✅ E'loningiz guruhga muvaffaqiyatli yuborildi!", reply_markup=taxi_menu())
     except Exception as e:
-        await message.answer(
-            f"❌ Xato yuz berdi: {e}\n\n"
-            "Iltimos, admin bilan bog'laning.",
-            reply_markup=taxi_menu()
-        )
+        await message.answer(f"❌ Xato yuz berdi: {e}", reply_markup=taxi_menu())
 
 
-# ─── OBUNA KO'RISH ────────────────────────────────────────────────────────────
+# ─── KABINET ──────────────────────────────────────────────────────────────────
 
-@router.message(F.text == "💳 Обуна")
-async def show_subscription(message: Message):
+@router.message(F.text == "👤 Kabinet")
+async def taxi_cabinet(message: Message):
     user = await get_user(message.from_user.id)
-    if not _taxi_only(user):
-        await message.answer("❌ Bu bo'lim faqat taxi haydovchilar uchun.")
-        return
+    if not _taxi_only(user): return
 
     sub = await get_active_subscription(message.from_user.id)
-
+    sub_text = "❌ Faol emas"
     if sub:
         from datetime import datetime
-        start = datetime.fromisoformat(sub["start_date"]).strftime("%d.%m.%Y")
         end = datetime.fromisoformat(sub["end_date"]).strftime("%d.%m.%Y")
+        sub_text = f"✅ Faol (Tugash: {end})"
 
-        await message.answer(
-            f"✅ <b>Obuna aktiv</b>\n\n"
-            f"📅 Boshlangan: {start}\n"
-            f"📅 Tugash: {end}\n"
-            f"📦 Tarif: {sub['tariff']}",
-            parse_mode="HTML",
-            reply_markup=subscription_keyboard()
-        )
-    else:
-        await message.answer(
-            "❌ <b>Faol obuna topilmadi.</b>\n\n"
-            "Tarif tanlash uchun pastdagi tugmani bosing:",
-            parse_mode="HTML",
-            reply_markup=tariff_keyboard()
-        )
-
-
-@router.callback_query(F.data == "extend_subscription")
-async def extend_sub(call: CallbackQuery):
-    await call.message.edit_text(
-        "🔄 Tarif tanlang:",
-        reply_markup=tariff_keyboard()
+    text = (
+        f"👤 <b>Haydovchi kabineti</b>\n\n"
+        f"💰 Asosiy balans: {user.get('balance', 0):,} so'm\n"
+        f"🎁 Bonus balans: {user.get('discount_balance', 0):,} so'm\n"
+        f"📅 Obuna holati: {sub_text}\n"
     )
-    await call.answer()
+    await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("taxi"))
+
+
+@router.callback_query(F.data == "cabinet")
+async def taxi_cabinet_cb(call: CallbackQuery):
+    user = await get_user(call.from_user.id)
+    sub = await get_active_subscription(call.from_user.id)
+    sub_text = "❌ Faol emas"
+    if sub:
+        from datetime import datetime
+        end = datetime.fromisoformat(sub["end_date"]).strftime("%d.%m.%Y")
+        sub_text = f"✅ Faol (Tugash: {end})"
+
+    text = (
+        f"👤 <b>Haydovchi kabineti</b>\n\n"
+        f"💰 Asosiy balans: {user.get('balance', 0):,} so'm\n"
+        f"🎁 Bonus balans: {user.get('discount_balance', 0):,} so'm\n"
+        f"📅 Obuna holati: {sub_text}\n"
+    )
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=cabinet_keyboard("taxi"))
+
+
+@router.callback_query(F.data == "subscription")
+async def taxi_sub_menu(call: CallbackQuery):
+    user = await get_user(call.from_user.id)
+    kb = await tariff_keyboard(user.get("discount_balance", 0))
+    await call.message.edit_text("💳 <b>Obunani rasmiylashtirish yoki balansni to'ldirish:</b>\n\nTarif tanlang:", parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "history")
+async def taxi_history(call: CallbackQuery):
+    orders = await get_taxi_orders(call.from_user.id)
+    if not orders:
+        await call.answer("Olingan buyurtmalar topilmadi.")
+        return
+
+    text = "📜 <b>Oxirgi 20 ta buyurtmangiz:</b>\n"
+    for o in orders:
+        text += f"• {o['from_loc']} ➔ {o['to_loc']} | {o['price']} so'm\n"
+    
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=back_to_cabinet())
 
 
 @router.callback_query(F.data == "back_to_taxi")
 async def back_to_taxi_cb(call: CallbackQuery):
     await call.message.delete()
     await call.answer()
+
+
+@router.message(F.text == "🚪 Чиқиш")
+async def exit_taxi(message: Message, state: FSMContext):
+    from keyboards import role_keyboard
+    await message.answer("Bosh menyuga qaytildi.", reply_markup=role_keyboard())
+    await state.clear()

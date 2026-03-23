@@ -2,7 +2,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
 )
-from config import TARIFFS
+from database import get_tariffs
 
 
 # ─── ASOSIY MENYULAR ──────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ def client_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🚖 Taksi chaqirish")],
+            [KeyboardButton(text="👤 Kabinet")],
         ],
         resize_keyboard=True,
     )
@@ -45,7 +46,7 @@ def taxi_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📢 Эълон бериш")],
-            [KeyboardButton(text="💳 Обуна")],
+            [KeyboardButton(text="👤 Kabinet")],
             [KeyboardButton(text="🚪 Чиқиш")],
         ],
         resize_keyboard=True,
@@ -63,13 +64,15 @@ def cancel_keyboard() -> ReplyKeyboardMarkup:
 
 # ─── OBUNA ────────────────────────────────────────────────────────────────────
 
-def tariff_keyboard(discount_balance: int = 0) -> InlineKeyboardMarkup:
+async def tariff_keyboard(discount_balance: int = 0) -> InlineKeyboardMarkup:
     """Tarif tanlash"""
+    tariffs_db = await get_tariffs()
     buttons = []
-    for key, t in TARIFFS.items():
+    for t in tariffs_db:
         buttons.append([InlineKeyboardButton(
-            text=t["label"], callback_data=f"tariff:{key}"
+            text=t["name"], callback_data=f"tariff:{t['key']}"
         )])
+
     
     if discount_balance > 0:
         buttons.append([InlineKeyboardButton(
@@ -97,7 +100,15 @@ def subscription_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-# ─── ADMIN TO'LOV ─────────────────────────────────────────────────────────────
+def admin_panel_keyboard() -> InlineKeyboardMarkup:
+    """Admin asosiy paneli"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="📦 Buyurtmalar", callback_data="admin_orders")],
+        [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users")],
+        [InlineKeyboardButton(text="⚙️ Tariflar", callback_data="admin_tariffs")],
+    ])
+
 
 def admin_payment_keyboard(payment_id: int, used_discount: int = 0) -> InlineKeyboardMarkup:
     """Admin uchun tasdiqlash/rad etish tugmalari"""
@@ -148,12 +159,19 @@ def passengers_keyboard() -> ReplyKeyboardMarkup:
         one_time_keyboard=True,
     )
 
-def location_keyboard() -> ReplyKeyboardMarkup:
-    """Lakatsiya yuborish tugmasi"""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📍 Manzilni yuborish", request_location=True)],
-            [KeyboardButton(text="❌ Bekor qilish")],
-        ],
-        resize_keyboard=True
-    )
+def cabinet_keyboard(role: str) -> InlineKeyboardMarkup:
+    """Kabinet menyusi"""
+    buttons = [
+        [InlineKeyboardButton(text="📜 Buyurtmalar tarixi", callback_data="history")],
+    ]
+    if role == "taxi":
+        buttons.insert(0, [InlineKeyboardButton(text="💳 Obuna / Balans", callback_data="subscription")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def back_to_cabinet() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="cabinet")]
+    ])
+

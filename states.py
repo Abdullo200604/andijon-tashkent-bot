@@ -28,3 +28,11 @@ class PaymentForm(StatesGroup):
 class DiscountCalcForm(StatesGroup):
     """Olingan buyurtma uchun chegirma hisoblash bosqichi"""
     waiting_price = State()  # Mijoz kiritgan real narxni kutish
+
+
+class AdminState(StatesGroup):
+    """Admin boshqaruv bosqichlari"""
+    waiting_user_id = State()
+    waiting_balance_amount = State()
+    waiting_tariff_price = State()
+
