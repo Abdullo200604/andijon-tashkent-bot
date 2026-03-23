@@ -130,9 +130,9 @@ async def admin_find_user(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "admin_edit_balance")
-async def admin_pre_edit_balance(call: CallbackQuery, state: FSMContext):
+async def admin_edit_balance_start(call: CallbackQuery, state: FSMContext):
     await state.set_state(AdminState.waiting_balance_amount)
-    await call.message.answer("Summani yozing (masalan, 50000 qo'shish uchun <code>50000</code>, ayirish uchun <code>-10000</code>):", parse_mode="HTML")
+    await call.message.answer("💰 Balansga qo'shiladigan/yechiladigan summani kiriting (masalan: 10000 yoki -5000):")
     await call.answer()
 
 
@@ -236,11 +236,19 @@ async def approve_payment_handler(call: CallbackQuery, bot: Bot):
     t = next((t for t in tariffs if t["key"] == payment["tariff"]), None)
     if t:
         await add_subscription(payment["user_id"], t["name"], t["days"])
+        
+        # Qolgan pulni balansga o'tkazish
+        remainder = payment["amount"] - t["price"]
+        remainder_text = ""
+        if remainder > 0:
+            await update_balance(payment["user_id"], remainder)
+            remainder_text = f"\n💰 Qoldiq {remainder:,} so'm balansingizga qo'shildi."
+
         # Taxiga xabar
         try:
             await bot.send_message(
                 payment["user_id"],
-                f"✅ <b>To'lovingiz tasdiqlandi!</b>\n\n📦 Tarif: {t['name']}\nEndi e'lon berishingiz mumkin! 🚕",
+                f"✅ <b>To'lovingiz tasdiqlandi!</b>\n\n📦 Tarif: {t['name']}{remainder_text}\nEndi e'lon berishingiz mumkin! 🚕",
                 parse_mode="HTML"
             )
         except: pass

@@ -11,7 +11,10 @@ from utils import is_valid_location_name
 router = Router()
 
 
-def _taxi_only(user) -> bool:
+def _taxi_only(user, user_id=None) -> bool:
+    from config import ADMIN_ID
+    if user_id == ADMIN_ID:
+        return True
     return user and user["role"] == "taxi"
 
 
@@ -20,18 +23,20 @@ def _taxi_only(user) -> bool:
 @router.message(F.text == "📢 Эълон бериш")
 async def announce_start(message: Message, state: FSMContext):
     user = await get_user(message.from_user.id)
-    if not _taxi_only(user):
+    if not _taxi_only(user, message.from_user.id):
         return
 
     # Obuna tekshiruvi
-    sub = await get_active_subscription(message.from_user.id)
-    if not sub:
-        await message.answer(
-            "❌ <b>E'lon berish uchun faol obuna kerak!</b>\n\n"
-            "💳 Obuna sotib olish uchun: <b>Kabinet</b> bo'limiga o'ting.",
-            parse_mode="HTML"
-        )
-        return
+    from config import ADMIN_ID
+    if message.from_user.id != ADMIN_ID:
+        sub = await get_active_subscription(message.from_user.id)
+        if not sub:
+            await message.answer(
+                "❌ <b>E'lon berish uchun faol obuna kerak!</b>\n\n"
+                "💳 Obuna sotib olish uchun: <b>Kabinet</b> bo'limiga o'ting.",
+                parse_mode="HTML"
+            )
+            return
 
     await state.set_state(TaxiAnnounceForm.direction)
     await message.answer(
@@ -99,7 +104,7 @@ async def announce_time(message: Message, state: FSMContext, bot: Bot):
 @router.message(F.text == "👤 Kabinet")
 async def taxi_cabinet(message: Message):
     user = await get_user(message.from_user.id)
-    if not _taxi_only(user): return
+    if not _taxi_only(user, message.from_user.id): return
 
     sub = await get_active_subscription(message.from_user.id)
     sub_text = "❌ Faol emas"

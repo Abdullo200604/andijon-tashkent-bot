@@ -23,8 +23,10 @@ active_order_messages: dict[int, dict[int, int]] = {}
 async def start_order(message: Message, state: FSMContext):
     """Buyurtma berish bosqichi — qayerdan"""
     user = await get_user(message.from_user.id)
-    if not user or user["role"] != "client":
-        return
+    from config import ADMIN_ID
+    if message.from_user.id != ADMIN_ID:
+        if not user or user["role"] != "client":
+            return
 
     await state.set_state(OrderForm.from_loc)
     await message.answer(
@@ -178,7 +180,9 @@ async def _order_timeout(bot: Bot, order_id: int, client_id: int):
 @router.message(F.text == "👤 Kabinet")
 async def client_cabinet(message: Message):
     user = await get_user(message.from_user.id)
-    if not user or user["role"] != "client": return
+    from config import ADMIN_ID
+    if message.from_user.id != ADMIN_ID:
+        if not user or user["role"] != "client": return
     
     text = (
         f"👤 <b>Mijoz kabineti</b>\n\n"
