@@ -6,10 +6,10 @@ from aiogram.fsm.context import FSMContext
 from config import ORDER_TIMEOUT
 from database import (
     get_user, create_order, get_all_active_taxi_ids,
-    expire_order, get_order
+    expire_order, get_order, add_discount_balance
 )
-from keyboards import client_menu, cancel_keyboard, order_keyboard, location_keyboard
-from states import OrderForm
+from keyboards import client_menu, cancel_keyboard, order_keyboard, location_keyboard, passengers_keyboard
+from states import OrderForm, DiscountCalcForm
 from utils import is_valid_phone, is_valid_time, is_valid_location_name
 
 router = Router()
@@ -105,14 +105,14 @@ async def order_time(message: Message, state: FSMContext):
         return
 
     if not is_valid_time(message.text):
-        await message.answer("❌ Noto'g'ri vaqt formati. Iltimos, HH:MM formatida yoki 'Hozir' deb yozing.")
+        await message.answer("❌ Noto'g'ri vaqt formati. Iltimos, soat:daqiqa (12:00) formatida yoki 'Hozir' deb yozing.")
         return
 
     await state.update_data(order_time=message.text)
     await state.set_state(OrderForm.price)
     await message.answer(
         "💰 Narx bo'yicha taklifingiz?\n\n"
-        "(Misol: 120 000, Kelishamiz...)",
+        "(Misol: 200 000, 250 000...)",
         reply_markup=cancel_keyboard()
     )
 
@@ -125,39 +125,40 @@ async def order_price(message: Message, state: FSMContext):
         return
 
     await state.update_data(price=message.text)
-    await state.set_state(OrderForm.phone)
+    await state.set_state(OrderForm.passengers)
     await message.answer(
-        "📞 Telefon raqamingiz?\n\n"
-        "(Misol: +998901234567)",
-        reply_markup=cancel_keyboard()
+        "👥 Necha kishi ketasiz?",
+        reply_markup=passengers_keyboard()
     )
 
 
-@router.message(OrderForm.phone)
-async def order_phone(message: Message, state: FSMContext, bot: Bot):
+@router.message(OrderForm.passengers)
+async def order_passengers(message: Message, state: FSMContext, bot: Bot):
     if message.text == "❌ Bekor qilish":
         await state.clear()
         await message.answer("❌ Buyurtma bekor qilindi.", reply_markup=client_menu())
         return
 
-    if not is_valid_phone(message.text):
-        await message.answer("❌ Noto'g'ri telefon raqami. Iltimos, +998XXXXXXXXX formatida kiriting.")
-        return
-
     data = await state.get_data()
     await state.clear()
 
+    user = await get_user(message.from_user.id)
+    if not user or not user["phone"]:
+        await message.answer("❌ Telefon raqamingiz topilmadi, qayta /start bosing.")
+        return
+
+    phone = user["phone"]
+    passengers = message.text
     from_loc = data["from_loc"]
     to_loc = data["to_loc"]
     lat = data.get("lat")
     lon = data.get("lon")
     order_time = data["order_time"]
     price = data["price"]
-    phone = message.text
     client_id = message.from_user.id
 
     # Buyurtmani bazaga yozish
-    order_id = await create_order(client_id, from_loc, to_loc, order_time, price, phone, lat, lon)
+    order_id = await create_order(client_id, from_loc, to_loc, order_time, price, phone, lat, lon, passengers)
 
     await message.answer(
         "✅ Buyurtmangiz yuborildi! Taxi haydovchilar xabardor qilindi.\n"
@@ -170,6 +171,7 @@ async def order_phone(message: Message, state: FSMContext, bot: Bot):
 
     order_text = (
         f"🆕 <b>Yangi buyurtma #{order_id}</b>\n\n"
+        f"👤 Yo'lovchilar: {passengers}\n"
         f"📍 <b>{from_loc}</b> → <b>{to_loc}</b>\n"
         f"🕒 {order_time}\n"
         f"💰 {price}\n"
@@ -225,3 +227,64 @@ async def _order_timeout(bot: Bot, order_id: int, client_id: int):
                 except Exception:
                     pass
             del active_order_messages[order_id]
+
+
+@router.callback_query(F.data.startswith("disc_price:"))
+async def start_discount_calc(call: CallbackQuery, state: FSMContext):
+    """Mijoz chegirma narxini yozishi uchun holatga o'tish"""
+    _, percent, taxi_id = call.data.split(":")
+    await state.update_data(discount_percent=int(percent), discount_taxi_id=int(taxi_id))
+    await state.set_state(DiscountCalcForm.waiting_price)
+    
+    await call.message.edit_text(
+        f"🎉 <b>Tabriklaymiz!</b> Sizda <b>{percent}% chegirma</b> mavjud! 🎁\n\n"
+        f"Iltimos, haydovchi bilan kelishgan <b>aniq narxni (faqat raqamlarda)</b> kiriting:\n"
+        f"(Misol uchun: 200000)",
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@router.message(DiscountCalcForm.waiting_price)
+async def process_discount_price(message: Message, state: FSMContext, bot: Bot):
+    """Mijoz haydovchi bilan kelishgan aniq narxni yozadi, biz chegirma hisoblaymiz"""
+    import re
+    
+    # Narx ichidan faqat raqamlarni olamiz
+    digits = re.sub(r'\D', '', message.text)
+    if not digits:
+        await message.answer("❌ Iltimos, aniq raqamlarda kiriting (masalan, 200000):")
+        return
+        
+    actual_price = int(digits)
+    data = await state.get_data()
+    discount_percent = data.get("discount_percent", 0)
+    taxi_id = data.get("discount_taxi_id")
+    
+    await state.clear()
+    
+    discount_amount = int(actual_price * discount_percent / 100)
+    final_price = actual_price - discount_amount
+    
+    # Mijozga yuborish
+    await message.answer(
+        f"🎉 Sizning {discount_percent}% chegirmangiz {discount_amount:,} so'm bo'ldi!\n\n"
+        f"Haydovchiga faqat {final_price:,} so'm to'laysiz.",
+        reply_markup=client_menu()
+    )
+    
+    # Haydovchiga yuborish va bazani yangilash
+    if taxi_id:
+        await add_discount_balance(taxi_id, discount_amount)
+        client_name = message.from_user.full_name or message.from_user.username or "Mijoz"
+        try:
+            await bot.send_message(
+                taxi_id,
+                f"🎁 <b>Chegirma bonusi!</b>\n\n"
+                f"Sizning mijozingiz {client_name} ga {discount_percent}% chegirma qilinganligi sababli, "
+                f"sizning hisobingizga <b>{discount_amount:,} so'm</b> chegirma bonusi (vaucher) qo'shildi!\n\n"
+                f"Bu pulni o'z obunangizni sotib olayotganda ishlata olasiz.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            pass

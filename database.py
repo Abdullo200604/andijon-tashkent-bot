@@ -68,12 +68,17 @@ async def init_db():
         try:
             await db.execute("ALTER TABLE orders ADD COLUMN latitude REAL")
             await db.execute("ALTER TABLE orders ADD COLUMN longitude REAL")
-            # Update created_at type if it was TEXT
-            # This is more complex and might require recreating the table or a specific ALTER TABLE statement
-            # For simplicity, we'll assume the initial CREATE TABLE handles it for new databases.
-            # If the table already exists with TEXT, it will remain TEXT unless explicitly altered.
         except aiosqlite.OperationalError:
-            # Ustunlar allaqachon mavjud bo'lishi mumkin (OperationalError: duplicate column name)
+            pass
+
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN discount_balance INTEGER DEFAULT 0")
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE orders ADD COLUMN passengers TEXT")
+        except aiosqlite.OperationalError:
             pass
 
         await db.commit()
@@ -92,6 +97,7 @@ async def get_user(telegram_id: int):
 
 async def upsert_user(telegram_id: int, username: str, full_name: str, role: str):
     async with aiosqlite.connect(DB_PATH) as db:
+        # Avoid overwriting discount_balance on upsert
         await db.execute("""
             INSERT INTO users (telegram_id, username, full_name, role)
             VALUES (?, ?, ?, ?)
@@ -101,6 +107,41 @@ async def upsert_user(telegram_id: int, username: str, full_name: str, role: str
                 role      = excluded.role
         """, (telegram_id, username, full_name, role))
         await db.commit()
+
+
+async def save_user_phone(telegram_id: int, phone: str, username: str, full_name: str):
+    """Save phone number during /start"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO users (telegram_id, username, full_name, phone)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(telegram_id) DO UPDATE SET
+                username  = excluded.username,
+                full_name = excluded.full_name,
+                phone     = excluded.phone
+        """, (telegram_id, username, full_name, phone))
+        await db.commit()
+
+
+async def add_discount_balance(telegram_id: int, amount: int):
+    """Haydovchiga chegirma bonusi qo'shish"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE users SET discount_balance = COALESCE(discount_balance, 0) + ? 
+            WHERE telegram_id = ?
+        """, (amount, telegram_id))
+        await db.commit()
+
+
+async def deduct_discount_balance(telegram_id: int, amount: int):
+    """Haydovchi obuna sotib olganda bonusi ayriladi"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE users SET discount_balance = COALESCE(discount_balance, 0) - ? 
+            WHERE telegram_id = ?
+        """, (amount, telegram_id))
+        await db.commit()
+
 
 
 async def count_users_by_role(role: str) -> int:

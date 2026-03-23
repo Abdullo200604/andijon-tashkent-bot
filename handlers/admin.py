@@ -5,7 +5,8 @@ from aiogram.types import Message, CallbackQuery
 from config import ADMIN_ID, TARIFFS
 from database import (
     get_payment, update_payment_status, add_subscription, get_user,
-    count_users_by_role, count_active_subscriptions, count_payments, count_orders
+    count_users_by_role, count_active_subscriptions, count_payments, count_orders,
+    deduct_discount_balance
 )
 
 router = Router()
@@ -48,7 +49,10 @@ async def approve_payment(call: CallbackQuery, bot: Bot):
         await call.answer("❌ Ruxsatsiz!", show_alert=True)
         return
 
-    payment_id = int(call.data.split(":")[1])
+    parts = call.data.split(":")
+    payment_id = int(parts[1])
+    used_discount = int(parts[2]) if len(parts) > 2 else 0
+    
     payment = await get_payment(payment_id)
 
     if not payment:
@@ -61,6 +65,10 @@ async def approve_payment(call: CallbackQuery, bot: Bot):
 
     # To'lov tasdiqlash
     await update_payment_status(payment_id, "approved")
+    
+    # Chegirmani yechish
+    if used_discount > 0:
+        await deduct_discount_balance(payment["user_id"], used_discount)
 
     # Obuna qo'shish
     tariff = TARIFFS.get(payment["tariff"])

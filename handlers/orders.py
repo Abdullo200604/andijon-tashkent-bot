@@ -50,11 +50,43 @@ async def take_order_cb(call: CallbackQuery, bot: Bot):
             f"✅ <b>Taxi topildi!</b>\n\n"
             f"🚕 Haydovchi: {taxi_name}\n"
             f"📱 Telegram: {taxi_username}\n\n"
+            f"👤 Yo'lovchilar: {order['passengers']}\n"
             f"📍 Marshrut: {order['from_loc']} → {order['to_loc']}\n"
             f"🕒 Vaqt: {order['order_time']}\n"
             f"💰 Narx: {order['price']}",
             parse_mode="HTML"
         )
+        
+        # CHEGIRMA MANTIG'I (Milestone)
+        import random
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        
+        milestones = [1, 100, 1000, 10000, 100000, 1000000]
+        if order_id in milestones:
+            rand = random.randint(1, 100)
+            if rand <= 70:
+                discount_percent = random.randint(1, 5)
+            elif rand <= 90:
+                discount_percent = random.randint(6, 7)
+            else:
+                discount_percent = random.randint(8, 10)
+                
+            markup = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="📝 Kelishilgan narxni yozish", 
+                    callback_data=f"disc_price:{discount_percent}:{taxi_id}"
+                )
+            ]])
+            
+            await bot.send_message(
+                order["client_id"],
+                f"🎉 <b>Tabriklaymiz!</b> Siz bizning botimizda {order_id}-buyurtma egasisiz!\n\n"
+                f"Shu sababli sizga <b>{discount_percent}% chegirma</b> taqdim etiladi! 🎁\n\n"
+                f"Haydovchi bilan yakuniy narxni kelishganingizdan so'ng, "
+                f"pastdagi tugmani bosib narxni kiriting va biz sizga chegirmangizni hisoblab beramiz.",
+                reply_markup=markup,
+                parse_mode="HTML"
+            )
     except Exception:
         pass
 
@@ -62,10 +94,12 @@ async def take_order_cb(call: CallbackQuery, bot: Bot):
     await call.message.edit_text(
         f"✅ <b>Buyurtma sizniki!</b>\n\n"
         f"📞 Mijoz: {order['phone']}\n"
+        f"👤 Yo'lovchilar: {order['passengers']}\n"
         f"📍 {order['from_loc']} → {order['to_loc']}\n\n"
         f"Mijoz bilan bog'laning.",
         parse_mode="HTML"
     )
+
 
     # Agar lakatsiya (koordinatalar) bo'lsa, uni ham yuborish
     if order.get("latitude") and order.get("longitude"):
