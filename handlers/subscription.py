@@ -20,8 +20,9 @@ async def tariff_selected(call: CallbackQuery):
         return
 
     user = await get_user(call.from_user.id)
-    discount_balance = user.get("discount_balance", 0)
-    balance = user.get("balance", 0)
+    user_dict = dict(user)
+    discount_balance = user_dict.get("discount_balance", 0)
+    balance = user_dict.get("balance", 0)
 
     text = (
         f"📦 <b>Siz tanladingiz: {tariff['name']}</b>\n"
@@ -73,7 +74,7 @@ async def payment_request(call: CallbackQuery, bot: Bot):
         return
 
     user = await get_user(call.from_user.id)
-    discount_balance = user.get("discount_balance", 0)
+    discount_balance = dict(user).get("discount_balance", 0)
 
     amount = tariff["price"]
     used_discount = 0
@@ -86,7 +87,7 @@ async def payment_request(call: CallbackQuery, bot: Bot):
     payment_id = await create_payment(call.from_user.id, tariff_key, amount)
 
     # Admin xabari
-    username = f"@{user['username']}" if user and user.get("username") else "—"
+    username = f"@{user_dict.get('username')}" if user_dict.get("username") else "—"
     from keyboards import admin_payment_keyboard
     
     discount_text = f"\n🎁 Ishlatilgan chegirma: {used_discount:,} so'm" if used_discount > 0 else ""
@@ -95,7 +96,7 @@ async def payment_request(call: CallbackQuery, bot: Bot):
         f"💳 <b>Yangi to'lov so'rovi</b>\n\n"
         f"👤 Foydalanuvchi: {call.from_user.full_name}\n"
         f"📱 Username: {username}\n"
-        f"📞 Telefon: {user.get('phone', '—')}\n"
+        f"📞 Telefon: {user_dict.get('phone', '—')}\n"
         f"🆔 ID: <code>{call.from_user.id}</code>\n\n"
         f"📦 Tarif: {tariff['name']}\n"
         f"💰 Kutilayotgan summa: {amount:,} so'm{discount_text}\n\n"
@@ -136,8 +137,9 @@ async def buy_with_balance(call: CallbackQuery):
         return
     
     user = await get_user(call.from_user.id)
-    balance = user.get("balance", 0)
-    discount_balance = user.get("discount_balance", 0)
+    user_dict = dict(user)
+    balance = user_dict.get("balance", 0)
+    discount_balance = user_dict.get("discount_balance", 0)
     
     price = tariff["price"]
     
@@ -169,7 +171,7 @@ async def buy_with_balance(call: CallbackQuery):
 @router.callback_query(F.data == "back_to_tariff")
 async def back_to_tariff(call: CallbackQuery):
     user = await get_user(call.from_user.id)
-    kb = await tariff_keyboard(user.get("discount_balance", 0))
+    kb = await tariff_keyboard(dict(user).get("discount_balance", 0))
     await call.message.edit_text(
         "💳 Tarif tanlang:",
         reply_markup=kb

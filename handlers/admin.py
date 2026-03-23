@@ -105,15 +105,16 @@ async def admin_find_user(message: Message, state: FSMContext):
 
     await state.update_data(target_user_id=user["telegram_id"])
     
+    user_dict = dict(user)
     text = (
         f"👤 <b>Foydalanuvchi ma'lumoti</b>\n\n"
-        f"ID: <code>{user['telegram_id']}</code>\n"
-        f"Ism: {user['full_name']}\n"
-        f"Username: @{user['username'] if user['username'] else '—'}\n"
-        f"Telefon: {user['phone']}\n"
-        f"Rol: {user['role']}\n"
-        f"Asosiy Balans: {user.get('balance', 0):,} so'm\n"
-        f"Bonus Balans: {user.get('discount_balance', 0):,} so'm\n"
+        f"ID: <code>{user_dict['telegram_id']}</code>\n"
+        f"Ism: {user_dict['full_name']}\n"
+        f"Username: @{user_dict['username'] if user_dict['username'] else '—'}\n"
+        f"Telefon: {user_dict['phone']}\n"
+        f"Rol: {user_dict['role']}\n"
+        f"Asosiy Balans: {user_dict.get('balance', 0):,} so'm\n"
+        f"Bonus Balans: {user_dict.get('discount_balance', 0):,} so'm\n"
     )
     
     kb = InlineKeyboardMarkup(inline_keyboard=[

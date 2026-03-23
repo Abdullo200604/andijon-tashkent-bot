@@ -72,7 +72,7 @@ async def announce_time(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
     
     user = await get_user(message.from_user.id)
-    phone = user.get("phone", "Noma'lum")
+    phone = dict(user).get("phone", "Noma'lum")
 
     direction = data["direction"]
     ann_time = message.text
@@ -110,8 +110,8 @@ async def taxi_cabinet(message: Message):
 
     text = (
         f"👤 <b>Haydovchi kabineti</b>\n\n"
-        f"💰 Asosiy balans: {user.get('balance', 0):,} so'm\n"
-        f"🎁 Bonus balans: {user.get('discount_balance', 0):,} so'm\n"
+        f"💰 Asosiy balans: {dict(user).get('balance', 0):,} so'm\n"
+        f"🎁 Bonus balans: {dict(user).get('discount_balance', 0):,} so'm\n"
         f"📅 Obuna holati: {sub_text}\n"
     )
     await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("taxi"))
@@ -129,8 +129,8 @@ async def taxi_cabinet_cb(call: CallbackQuery):
 
     text = (
         f"👤 <b>Haydovchi kabineti</b>\n\n"
-        f"💰 Asosiy balans: {user.get('balance', 0):,} so'm\n"
-        f"🎁 Bonus balans: {user.get('discount_balance', 0):,} so'm\n"
+        f"💰 Asosiy balans: {dict(user).get('balance', 0):,} so'm\n"
+        f"🎁 Bonus balans: {dict(user).get('discount_balance', 0):,} so'm\n"
         f"📅 Obuna holati: {sub_text}\n"
     )
     await call.message.edit_text(text, parse_mode="HTML", reply_markup=cabinet_keyboard("taxi"))
@@ -139,7 +139,7 @@ async def taxi_cabinet_cb(call: CallbackQuery):
 @router.callback_query(F.data == "subscription")
 async def taxi_sub_menu(call: CallbackQuery):
     user = await get_user(call.from_user.id)
-    kb = await tariff_keyboard(user.get("discount_balance", 0))
+    kb = await tariff_keyboard(dict(user).get("discount_balance", 0))
     await call.message.edit_text("💳 <b>Obunani rasmiylashtirish yoki balansni to'ldirish:</b>\n\nTarif tanlang:", parse_mode="HTML", reply_markup=kb)
 
 

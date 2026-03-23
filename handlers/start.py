@@ -16,14 +16,15 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user = await get_user(message.from_user.id)
 
-    if user and user.get("phone"):
-        if user.get("role") == "client":
+    if user and user["phone"]:
+        if user["role"] == "client":
             await message.answer(
                 "👋 Xush kelibsiz, Mijoz!\n\n"
                 "Taksi chaqirish uchun tugmani bosing:",
                 reply_markup=client_menu()
             )
-        elif user.get("role") == "taxi":
+        elif user["role"] == "taxi":
+
             await message.answer(
                 "🚕 Taxi paneliga xush kelibsiz!",
                 reply_markup=taxi_menu()
