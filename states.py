@@ -23,6 +23,8 @@ class TaxiAnnounceForm(StatesGroup):
 class PaymentForm(StatesGroup):
     """To'lov tasdiqlash bosqichi"""
     waiting_confirm = State()
+    waiting_proof = State()  # Rasm (screenshot) kutish
+    waiting_amount = State() # To'langan summani kutish
 
 
 class DiscountCalcForm(StatesGroup):

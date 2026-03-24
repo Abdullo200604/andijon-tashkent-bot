@@ -393,9 +393,12 @@ async def get_tariffs():
                 await db.executemany(
                     "INSERT INTO tariffs (key, name, price, days) VALUES (?, ?, ?, ?)",
                     [
-                        ("day", "1 kunlik", 15000, 1),
-                        ("week", "1 haftalik", 50000, 7),
-                        ("month", "1 oylik", 150000, 30),
+                        ("day", "⚡ 1 kun (Sinab ko'rish)", 15000, 1),
+                        ("week", "⚡ 1 hafta (Qisqa muddatli)", 50000, 7),
+                        ("month", "⭐ 1 oy (ENG OMMABOP)", 99000, 30),
+                        ("3month", "🚀 3 oy (Eng foydali -30%)", 210000, 90),
+                        ("6month", "💼 6 oy (Arzonroq)", 380000, 180),
+                        ("year", "👑 1 yil (Best deal -40%)", 700000, 365),
                     ]
                 )
                 await db.commit()

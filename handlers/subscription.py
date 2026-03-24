@@ -63,28 +63,59 @@ async def tariff_selected(call: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("pay_full:") | F.data.startswith("pay_disc:"))
-async def payment_request(call: CallbackQuery, bot: Bot):
-    """Foydalanuvchi to'lov qildim dedi — adminga xabar va to'lovni bazaga qo'shish"""
+async def payment_request_start(call: CallbackQuery, state: FSMContext):
+    """Foydalanuvchi to'lov qildim dedi — rasm so'rash"""
     action, tariff_key = call.data.split(":")
+    await state.update_data(pay_action=action, pay_tariff=tariff_key)
+    await state.set_state(PaymentForm.waiting_proof)
+    
+    await call.message.answer(
+        "📸 <b>To'lov chekini (screenshot) yuboring:</b>\n\n"
+        "Iltimos, rasm ko'rinishida yuklang.",
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@router.message(F.photo, PaymentForm.waiting_proof)
+async def process_payment_proof(message: Message, state: FSMContext):
+    """Rasm qabul qilindi — summani so'rash"""
+    file_id = message.photo[-1].file_id
+    await state.update_data(proof_file_id=file_id)
+    await state.set_state(PaymentForm.waiting_amount)
+    await message.answer("💰 <b>Qancha pul o'tkazdingiz?</b>\n\nFaqat sonlarda yozing (masalan: 99000):", parse_mode="HTML")
+
+
+@router.message(F.text, PaymentForm.waiting_amount)
+async def process_payment_amount(message: Message, state: FSMContext, bot: Bot):
+    """Summa qabul qilindi — adminga yuborish"""
+    amount_str = re.sub(r'\D', '', message.text)
+    if not amount_str:
+        await message.answer("❌ Iltimos, faqat raqamlarda kiriting:")
+        return
+    
+    amount = int(amount_str)
+    data = await state.get_data()
+    action = data.get("pay_action")
+    tariff_key = data.get("pay_tariff")
+    file_id = data.get("proof_file_id")
+    await state.clear()
+
     tariffs = await get_tariffs()
     tariff = next((t for t in tariffs if t["key"] == tariff_key), None)
-    
     if not tariff:
-        await call.answer("❌ Xatolik.", show_alert=True)
+        await message.answer("❌ Xatolik yuz berdi. Qayta urinib ko'ring.")
         return
 
-    user = await get_user(call.from_user.id)
-    discount_balance = dict(user).get("discount_balance", 0)
-
-    amount = tariff["price"]
+    user = await get_user(message.from_user.id)
+    user_dict = dict(user)
+    discount_balance = user_dict.get("discount_balance", 0)
     used_discount = 0
-
     if action == "pay_disc" and discount_balance > 0:
-        used_discount = min(discount_balance, amount)
-        amount = max(0, amount - used_discount)
+        used_discount = min(discount_balance, tariff["price"])
 
     # Save payment to DB
-    payment_id = await create_payment(call.from_user.id, tariff_key, amount)
+    payment_id = await create_payment(message.from_user.id, tariff_key, amount)
 
     # Admin xabari
     username = f"@{user_dict.get('username')}" if user_dict.get("username") else "—"
@@ -93,37 +124,32 @@ async def payment_request(call: CallbackQuery, bot: Bot):
     discount_text = f"\n🎁 Ishlatilgan chegirma: {used_discount:,} so'm" if used_discount > 0 else ""
 
     text = (
-        f"💳 <b>Yangi to'lov so'rovi</b>\n\n"
-        f"👤 Foydalanuvchi: {call.from_user.full_name}\n"
+        f"💳 <b>Yangi to'lov so'rovi #{payment_id}</b>\n\n"
+        f"👤 Foydalanuvchi: {message.from_user.full_name}\n"
         f"📱 Username: {username}\n"
-        f"📞 Telefon: {user_dict.get('phone', '—')}\n"
-        f"🆔 ID: <code>{call.from_user.id}</code>\n\n"
+        f"📞 Telefon: {user_dict.get('phone', '—')}\n\n"
         f"📦 Tarif: {tariff['name']}\n"
-        f"💰 Kutilayotgan summa: {amount:,} so'm{discount_text}\n\n"
-        f"❗ <i>Eslatma: Tasdiqlansa, agar bonus ishlatilgan bo'lsa, avtomatik yechiladi.</i>"
+        f"💰 To'langan: {amount:,} so'm\n"
+        f"💎 Kutilgan: {tariff['price']:,} so'm{discount_text}\n"
     )
 
     try:
-        await bot.send_message(
+        await bot.send_photo(
             ADMIN_ID,
-            text,
+            photo=file_id,
+            caption=text,
             parse_mode="HTML",
             reply_markup=admin_payment_keyboard(payment_id, used_discount)
         )
     except Exception as e:
-        await call.message.edit_text(
-            f"❌ Admin bilan bog'lanishda xato.\n"
-            "Iltimos, to'lov chekini bevosita adminga yuboring."
-        )
+        await message.answer("❌ Admin bilan bog'lanishda xato. Iltimos, birozdan so'ng urinib ko'ring.")
         return
 
-    await call.message.edit_text(
-        "✅ <b>So'rovingiz adminga yuborildi!</b>\n\n"
-        "⏳ Admin tasdiqlashidan so'ng obunangiz faollashadi.\n"
-        "Odatda 5-30 daqiqa ichida tasdiqlanadi.",
+    await message.answer(
+        "✅ <b>Ma'lumotlar adminga yuborildi!</b>\n\n"
+        "⏳ Tez orada tekshirib tasdiqlanadi.",
         parse_mode="HTML"
     )
-    await call.answer("✅ So'rov yuborildi!")
 
 
 @router.callback_query(F.data.startswith("buy_balance:"))

@@ -69,18 +69,23 @@ async def tariff_keyboard(discount_balance: int = 0) -> InlineKeyboardMarkup:
     tariffs_db = await get_tariffs()
     buttons = []
     for t in tariffs_db:
+        name = t["name"]
+        if t["days"] >= 30:
+            mo_price = int(t["price"] / (t["days"] / 30))
+            if t["days"] > 30:
+                name = f"{name} (~{mo_price:,}/oy)"
+        
         buttons.append([InlineKeyboardButton(
-            text=t["name"], callback_data=f"tariff:{t['key']}"
+            text=name, callback_data=f"tariff:{t['key']}"
         )])
 
-    
     if discount_balance > 0:
         buttons.append([InlineKeyboardButton(
-            text=f"🎁 Chegirmadan foydalanish ({discount_balance} so'm)", 
+            text=f"🎁 Bonusingizni ishlatish ({discount_balance:,} so'm)", 
             callback_data="use_discount"
         )])
         
-    buttons.append([InlineKeyboardButton(text="🔙 Орқа", callback_data="back_to_taxi")])
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_taxi")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

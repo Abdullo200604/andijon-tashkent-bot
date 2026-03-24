@@ -139,6 +139,8 @@ async def order_passengers(message: Message, state: FSMContext, bot: Bot):
     await message.answer("✅ Buyurtmangiz yuborildi! Taxi haydovchilar xabardor qilindi.\n⏱ 5 daqiqa ichida javob keladi...", reply_markup=client_menu())
 
     taxi_ids = await get_all_active_taxi_ids()
+    print(f"DEBUG: Buyurtma #{order_id} uchun {len(taxi_ids)} ta faol haydovchi topildi: {taxi_ids}")
+    
     order_text = (
         f"🆕 <b>Yangi buyurtma #{order_id}</b>\n\n"
         f"👤 Yo'lovchilar: {message.text}\n"
@@ -153,7 +155,9 @@ async def order_passengers(message: Message, state: FSMContext, bot: Bot):
         try:
             sent = await bot.send_message(taxi_id, order_text, parse_mode="HTML", reply_markup=order_keyboard(order_id))
             sent_messages[taxi_id] = sent.message_id
-        except: pass
+            print(f"DEBUG: Buyurtma #{order_id} haydovchi {taxi_id} ga yuborildi.")
+        except Exception as e:
+            print(f"DEBUG: Buyurtma #{order_id}ni haydovchi {taxi_id}ga yuborishda xato: {e}")
 
     active_order_messages[order_id] = sent_messages
     asyncio.create_task(_order_timeout(bot, order_id, message.from_user.id))
