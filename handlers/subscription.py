@@ -5,7 +5,8 @@ from aiogram.types import CallbackQuery, LabeledPrice, PreCheckoutQuery, Message
 
 from config import CARD_NUMBER, CARD_NAME, ADMIN_ID
 from database import get_user, create_payment, get_tariffs, update_payment_status, add_subscription, update_balance, deduct_discount_balance
-from keyboards import tariff_keyboard
+from keyboards import tariff_keyboard, admin_payment_keyboard
+from states import PaymentForm
 
 router = Router()
 
@@ -121,7 +122,6 @@ async def process_payment_amount(message: Message, state: FSMContext, bot: Bot):
 
     # Admin xabari
     username = f"@{user_dict.get('username')}" if user_dict.get("username") else "—"
-    from keyboards import admin_payment_keyboard
     
     discount_text = f"\n🎁 Ishlatilgan chegirma: {used_discount:,} so'm" if used_discount > 0 else ""
 
