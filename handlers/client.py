@@ -116,12 +116,38 @@ async def order_price(message: Message, state: FSMContext):
 
 
 @router.message(OrderForm.passengers)
-async def order_passengers(message: Message, state: FSMContext, bot: Bot):
+async def order_passengers(message: Message, state: FSMContext):
     if message.text == "❌ Bekor qilish":
         await state.clear()
         await message.answer("❌ Bekor qilindi.", reply_markup=client_menu())
         return
 
+    await state.update_data(passengers=message.text)
+    await state.set_state(OrderForm.contact_phone)
+    
+    user = await get_user(message.from_user.id)
+    reg_phone = user["phone"] if user else ""
+    
+    from keyboards import contact_phone_keyboard
+    await message.answer(
+        f"📞 <b>Bog'lanish uchun raqamni kiriting:</b>\n\n"
+        f"Agar hozirgi raqamingiz (<code>{reg_phone}</code>) aktiv bo'lsa, pastdagi tugmani bosing:",
+        parse_mode="HTML",
+        reply_markup=contact_phone_keyboard(reg_phone)
+    )
+
+
+@router.message(OrderForm.contact_phone)
+async def order_contact_phone(message: Message, state: FSMContext, bot: Bot):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=client_menu())
+        return
+
+    contact_phone = message.text
+    if message.contact:
+        contact_phone = message.contact.phone_number
+    
     data = await state.get_data()
     await state.clear()
 
@@ -133,21 +159,23 @@ async def order_passengers(message: Message, state: FSMContext, bot: Bot):
     order_id = await create_order(
         message.from_user.id, data["from_loc"], data["to_loc"],
         data["order_time"], data["price"], user["phone"],
-        data.get("lat"), data.get("lon"), message.text
+        data.get("lat"), data.get("lon"), data["passengers"],
+        contact_phone
     )
 
     await message.answer("✅ Buyurtmangiz yuborildi! Taxi haydovchilar xabardor qilindi.\n⏱ 5 daqiqa ichida javob keladi...", reply_markup=client_menu())
 
     taxi_ids = await get_all_active_taxi_ids()
-    print(f"DEBUG: Buyurtma #{order_id} uchun {len(taxi_ids)} ta faol haydovchi topildi: {taxi_ids}")
     
+    username = f"@{message.from_user.username}" if message.from_user.username else "—"
     order_text = (
         f"🆕 <b>Yangi buyurtma #{order_id}</b>\n\n"
-        f"👤 Yo'lovchilar: {message.text}\n"
+        f"👤 Telegram: {username}\n"
+        f"👥 Yo'lovchilar: {data['passengers']}\n"
         f"📍 <b>{data['from_loc']}</b> → <b>{data['to_loc']}</b>\n"
         f"🕒 {data['order_time']}\n"
         f"💰 {data['price']}\n"
-        f"📞 {user['phone']}"
+        f"📞 Tel: {contact_phone}"
     )
 
     sent_messages: dict[int, int] = {}

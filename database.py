@@ -56,7 +56,8 @@ async def init_db():
                 longitude  REAL,
                 order_time TEXT,
                 price      TEXT,
-                phone      TEXT,
+                phone      TEXT,            -- Ro'yxatdan o'tgan raqam
+                contact_phone TEXT,         -- Buyurtma uchun qo'shimcha raqam
                 passengers TEXT,
                 status     TEXT DEFAULT 'pending',  -- 'pending', 'taken', 'expired'
                 taken_by   INTEGER,
@@ -91,6 +92,11 @@ async def init_db():
 
         try:
             await db.execute("ALTER TABLE orders ADD COLUMN passengers TEXT")
+        except aiosqlite.OperationalError:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE orders ADD COLUMN contact_phone TEXT")
         except aiosqlite.OperationalError:
             pass
 
@@ -320,15 +326,15 @@ async def count_payments() -> int:
 
 # ─── ORDERS ───────────────────────────────────────────────────────────────────
 
-async def create_order(client_id: int, from_loc: str, to_loc: str, order_time: str, price: str, phone: str, latitude: float = None, longitude: float = None, passengers: str = None) -> int:
-    """Yangi buyurtma yaratish"""
+async def create_order(client_id, from_loc, to_loc, order_time, price, phone, lat, lon, passengers, contact_phone=None):
     async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("""
-            INSERT INTO orders (client_id, from_loc, to_loc, latitude, longitude, order_time, price, phone, passengers)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (client_id, from_loc, to_loc, latitude, longitude, order_time, price, phone, passengers))
-        await db.commit()
-        return cursor.lastrowid
+        async with db.execute("""
+            INSERT INTO orders (client_id, from_loc, to_loc, order_time, price, phone, latitude, longitude, passengers, contact_phone)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (client_id, from_loc, to_loc, order_time, price, phone, lat, lon, passengers, contact_phone)) as cursor:
+            order_id = cursor.lastrowid
+            await db.commit()
+            return order_id
 
 
 async def get_order(order_id: int):

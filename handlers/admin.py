@@ -253,21 +253,39 @@ async def approve_payment_handler(call: CallbackQuery, bot: Bot):
             )
         except: pass
 
-    await call.message.edit_text(call.message.text + "\n\n✅ <b>TASDIQLANGAN (ID: " + str(payment_id) + ")</b>")
-    await call.answer("Tasdiqlandi!")
+    payment_text = call.message.text
+    if payment_text and "Tasdiqlash" in payment_text:
+        payment_text = payment_text.split("Tasdiqlash")[0].strip()
+
+    await call.message.edit_text(
+        f"{payment_text}\n\n✅ <b>TASDIQLANDI</b>\nID: #{payment_id}",
+        parse_mode="HTML"
+    )
+    await call.answer("To'lov tasdiqlandi!")
 
 
 @router.callback_query(F.data.startswith("reject:"))
 async def reject_payment_handler(call: CallbackQuery, bot: Bot):
     payment_id = int(call.data.split(":")[1])
     payment = await get_payment(payment_id)
-    if payment:
-        await update_payment_status(payment_id, "rejected")
-        try:
-            await bot.send_message(payment["user_id"], "❌ To'lovingiz rad etildi.")
-        except: pass
-    await call.message.edit_text(call.message.text + "\n\n❌ <b>RAD ETILDI</b>")
-    await call.answer("Rad etildi.")
+    if not payment or payment["status"] != "pending":
+        await call.answer("⚠️ Bu to'lov ko'rib chiqilgan yoki topilmadi.", show_alert=True)
+        return
+
+    await update_payment_status(payment_id, "rejected")
+    try:
+        await bot.send_message(payment["user_id"], "❌ To'lovingiz rad etildi.")
+    except: pass
+
+    payment_text = call.message.text
+    if payment_text and "Tasdiqlash" in payment_text:
+        payment_text = payment_text.split("Tasdiqlash")[0].strip()
+
+    await call.message.edit_text(
+        f"{payment_text}\n\n❌ <b>RAD ETILDI</b>\nID: #{payment_id}",
+        parse_mode="HTML"
+    )
+    await call.answer("To'lov rad etildi.")
 
 
 @router.callback_query(F.data == "admin_cancel")

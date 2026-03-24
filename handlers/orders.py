@@ -91,19 +91,30 @@ async def take_order_cb(call: CallbackQuery, bot: Bot):
     except Exception as e:
         logging.error(f"Error in taxi-to-client notice: {e}")
 
+    # Mijoz ma'lumotlari (username uchun)
+    client_user = await get_user(order["client_id"])
+    client_username = f"@{client_user['username']}" if client_user and client_user["username"] else "—"
+    
+    # Lokatsiya linki
+    loc_link = ""
+    if order.get("latitude") and order.get("longitude"):
+        loc_link = f"\n📍 <a href='https://www.google.com/maps?q={order['latitude']},{order['longitude']}'>Xaritada ko'rish</a>"
+
     # Haydovchiga mijoz raqamini va lakatsiyasini yuborish
     await call.message.edit_text(
         f"✅ <b>Buyurtma sizniki!</b>\n\n"
-        f"📞 Mijoz: {order['phone']}\n"
-        f"👤 Yo'lovchilar: {order['passengers']}\n"
-        f"📍 {order['from_loc']} → {order['to_loc']}\n\n"
+        f"📞 Tel: {order['contact_phone'] or order['phone']}\n"
+        f"👤 Telegram: {client_username}\n"
+        f"👥 Yo'lovchilar: {order['passengers']}\n"
+        f"📍 {order['from_loc']} → {order['to_loc']}{loc_link}\n\n"
         f"Mijoz bilan bog'laning.",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        disable_web_page_preview=True
     )
 
     if order.get("latitude") and order.get("longitude"):
         try:
-            await call.message.answer_location(latitude=order["latitude"], longitude=order["longitude"])
+            await bot.send_location(taxi_id, latitude=order["latitude"], longitude=order["longitude"])
         except: pass
         
     await call.answer("✅ Buyurtma biriktirildi!")

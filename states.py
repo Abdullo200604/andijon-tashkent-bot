@@ -12,6 +12,7 @@ class OrderForm(StatesGroup):
     order_time = State()  # Vaqt
     price = State()       # Narx
     passengers = State()  # Yo'lovchilar soni
+    contact_phone = State()
 
 
 class TaxiAnnounceForm(StatesGroup):
