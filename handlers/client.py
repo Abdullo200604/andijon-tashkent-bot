@@ -179,21 +179,8 @@ async def _order_timeout(bot: Bot, order_id: int, client_id: int):
             del active_order_messages[order_id]
 
 
-# ─── KABINET VA TARIX ─────────────────────────────────────────────────────────
+# ─── KABINET VA TARIX ───────────────────────────────────────────────────────── (Handlers moved to start.py)
 
-@router.message(F.text == "👤 Kabinet")
-async def client_cabinet(message: Message):
-    user = await get_user(message.from_user.id)
-    from config import ADMIN_ID
-    if message.from_user.id != ADMIN_ID:
-        if not user or user["role"] != "client": return
-    
-    text = (
-        f"👤 <b>Mijoz kabineti</b>\n\n"
-        f"Ism: {user['full_name']}\n"
-        f"Telefon: {user['phone']}\n"
-    )
-    await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("client"))
 
 
 @router.callback_query(F.data == "cabinet")

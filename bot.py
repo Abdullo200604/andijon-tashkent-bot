@@ -42,10 +42,10 @@ async def main():
     # Routerlarni tartib bilan ulash
     dp.include_router(admin.router)
     dp.include_router(subscription.router)
+    dp.include_router(start.router)      # Start va umumiy handlerlar (Kabinet, Logout) birinchi bo'lishi kerak
     dp.include_router(orders.router)
     dp.include_router(taxi.router)
     dp.include_router(client.router)
-    dp.include_router(start.router)
 
     logging.info("🚀 Botlar ishga tushmoqda...")
 

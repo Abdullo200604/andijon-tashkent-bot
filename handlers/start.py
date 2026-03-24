@@ -16,30 +16,35 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user = await get_user(message.from_user.id)
 
-    if user and user["phone"]:
-        if user["role"] == "client":
-            await message.answer(
-                "👋 Xush kelibsiz, Mijoz!\n\n"
-                "Taksi chaqirish uchun tugmani bosing:",
-                reply_markup=client_menu()
-            )
-        elif user["role"] == "taxi":
-
-            await message.answer(
-                "🚕 Taxi paneliga xush kelibsiz!",
-                reply_markup=taxi_menu()
-            )
-        else:
-            await message.answer(
-                "Iltimos, rolingizni tanlang:",
-                reply_markup=role_keyboard()
-            )
-    else:
+    # Ildiz xatolikni oldini olish uchun: agar user bazada bo'lsa-yu, phone bo'lmasa -> ro'yxatdan o'tish
+    if not user or not user.get("phone"):
         await state.set_state(RegisterForm.phone)
         await message.answer(
             "👋 Assalomu alaykum!\n\n"
             "Botdan foydalanish uchun, iltimos, telefon raqamingizni yuboring:",
             reply_markup=phone_request_keyboard()
+        )
+        return
+
+    # Agar phone bo'lsa-yu, roli bo'lmasa -> rol tanlash
+    if not user.get("role"):
+        await message.answer(
+            "Iltimos, rolingizni tanlang:",
+            reply_markup=role_keyboard()
+        )
+        return
+
+    # Agar hammasi joyida bo'lsa -> menyu
+    if user["role"] == "client":
+        await message.answer(
+            "👋 Xush kelibsiz, Mijoz!\n\n"
+            "Taksi chaqirish uchun tugmani bosing:",
+            reply_markup=client_menu()
+        )
+    elif user["role"] == "taxi":
+        await message.answer(
+            "🚕 Taxi paneliga xush kelibsiz!",
+            reply_markup=taxi_menu()
         )
 
 @router.message(RegisterForm.phone, F.contact)
@@ -103,6 +108,47 @@ async def choose_taxi(message: Message, state: FSMContext):
     )
 
 
+# ─── KABINET ──────────────────────────────────────────────────────────────────
+
+@router.message(F.text == "👤 Kabinet")
+async def unified_cabinet(message: Message):
+    """Mijoz va Haydovchi uchun umumiy kabinet handler"""
+    user = await get_user(message.from_user.id)
+    if not user:
+        await message.answer("Iltimos, avval ro'yxatdan o'ting: /start")
+        return
+
+    from config import ADMIN_ID
+    from keyboards import cabinet_keyboard
+    
+    if user["role"] == "taxi" or message.from_user.id == ADMIN_ID:
+        # Taxi kabineti
+        from database import get_active_subscription
+        sub = await get_active_subscription(message.from_user.id)
+        sub_text = "❌ Faol emas"
+        if sub:
+            from datetime import datetime
+            end = datetime.fromisoformat(sub["end_date"]).strftime("%d.%m.%Y")
+            sub_text = f"✅ Faol (Tugash: {end})"
+
+        text = (
+            f"👤 <b>Haydovchi kabineti</b>\n\n"
+            f"💰 Asosiy balans: {user.get('balance', 0):,} so'm\n"
+            f"🎁 Bonus balans: {user.get('discount_balance', 0):,} so'm\n"
+            f"📅 Obuna holati: {sub_text}\n"
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("taxi"))
+    
+    elif user["role"] == "client":
+        # Mijoz kabineti
+        text = (
+            f"👤 <b>Mijoz kabineti</b>\n\n"
+            f"Ism: {user['full_name']}\n"
+            f"Telefon: {user['phone']}\n"
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("client"))
+
+
 @router.message(F.text == "🚪 Чиқиш")
 async def logout(message: Message, state: FSMContext):
     """Chiqish — rolni qayta tanlash"""
@@ -114,6 +160,6 @@ async def logout(message: Message, state: FSMContext):
         role=None
     )
     await message.answer(
-        "👋 Chiqildi. Qayta boshlash uchun /start bosing.",
+        "👋 Chiqildi. Rollardan birini tanlang:",
         reply_markup=role_keyboard()
     )

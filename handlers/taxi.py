@@ -99,33 +99,8 @@ async def announce_time(message: Message, state: FSMContext, bot: Bot):
         await message.answer(f"❌ Xato yuz berdi: {e}", reply_markup=taxi_menu())
 
 
-# ─── KABINET ──────────────────────────────────────────────────────────────────
+# ─── KABINET ────────────────────────────────────────────────────────────────── (Handlers moved to start.py)
 
-@router.message(F.text == "👤 Kabinet")
-async def taxi_cabinet(message: Message):
-    user = await get_user(message.from_user.id)
-    if not _taxi_only(user, message.from_user.id): return
-
-    sub = await get_active_subscription(message.from_user.id)
-    sub_text = "❌ Faol emas"
-    if sub:
-        from datetime import datetime
-        end = datetime.fromisoformat(sub["end_date"]).strftime("%d.%m.%Y")
-        sub_text = f"✅ Faol (Tugash: {end})"
-
-    text = (
-        f"👤 <b>Haydovchi kabineti</b>\n\n"
-        f"💰 Asosiy balans: {dict(user).get('balance', 0):,} so'm\n"
-        f"🎁 Bonus balans: {dict(user).get('discount_balance', 0):,} so'm\n"
-        f"📅 Obuna holati: {sub_text}\n"
-    )
-    await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("taxi"))
-
-
-@router.callback_query(F.data == "cabinet")
-async def taxi_cabinet_cb(call: CallbackQuery):
-    user = await get_user(call.from_user.id)
-    sub = await get_active_subscription(call.from_user.id)
     sub_text = "❌ Faol emas"
     if sub:
         from datetime import datetime
@@ -168,8 +143,4 @@ async def back_to_taxi_cb(call: CallbackQuery):
     await call.answer()
 
 
-@router.message(F.text == "🚪 Чиқиш")
-async def exit_taxi(message: Message, state: FSMContext):
-    from keyboards import role_keyboard
-    await message.answer("Bosh menyuga qaytildi.", reply_markup=role_keyboard())
-    await state.clear()
+# Handler moved to start.py
