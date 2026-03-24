@@ -17,7 +17,8 @@ async def cmd_start(message: Message, state: FSMContext):
     user = await get_user(message.from_user.id)
 
     # Ildiz xatolikni oldini olish uchun: agar user bazada bo'lsa-yu, phone bo'lmasa -> ro'yxatdan o'tish
-    if not user or not user.get("phone"):
+    user_dict = dict(user) if user else {}
+    if not user or not user_dict.get("phone"):
         await state.set_state(RegisterForm.phone)
         await message.answer(
             "👋 Assalomu alaykum!\n\n"
@@ -27,7 +28,7 @@ async def cmd_start(message: Message, state: FSMContext):
         return
 
     # Agar phone bo'lsa-yu, roli bo'lmasa -> rol tanlash
-    if not user.get("role"):
+    if not user_dict.get("role"):
         await message.answer(
             "Iltimos, rolingizni tanlang:",
             reply_markup=role_keyboard()
@@ -35,13 +36,13 @@ async def cmd_start(message: Message, state: FSMContext):
         return
 
     # Agar hammasi joyida bo'lsa -> menyu
-    if user["role"] == "client":
+    if user_dict["role"] == "client":
         await message.answer(
             "👋 Xush kelibsiz, Mijoz!\n\n"
             "Taksi chaqirish uchun tugmani bosing:",
             reply_markup=client_menu()
         )
-    elif user["role"] == "taxi":
+    elif user_dict["role"] == "taxi":
         await message.answer(
             "🚕 Taxi paneliga xush kelibsiz!",
             reply_markup=taxi_menu()
@@ -121,7 +122,8 @@ async def unified_cabinet(message: Message):
     from config import ADMIN_ID
     from keyboards import cabinet_keyboard
     
-    if user["role"] == "taxi" or message.from_user.id == ADMIN_ID:
+    user_dict = dict(user) if user else {}
+    if user_dict.get("role") == "taxi" or message.from_user.id == ADMIN_ID:
         # Taxi kabineti
         from database import get_active_subscription
         sub = await get_active_subscription(message.from_user.id)
@@ -133,18 +135,18 @@ async def unified_cabinet(message: Message):
 
         text = (
             f"👤 <b>Haydovchi kabineti</b>\n\n"
-            f"💰 Asosiy balans: {user.get('balance', 0):,} so'm\n"
-            f"🎁 Bonus balans: {user.get('discount_balance', 0):,} so'm\n"
+            f"💰 Asosiy balans: {user_dict.get('balance', 0):,} so'm\n"
+            f"🎁 Bonus balans: {user_dict.get('discount_balance', 0):,} so'm\n"
             f"📅 Obuna holati: {sub_text}\n"
         )
         await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("taxi"))
     
-    elif user["role"] == "client":
+    elif user_dict.get("role") == "client":
         # Mijoz kabineti
         text = (
             f"👤 <b>Mijoz kabineti</b>\n\n"
-            f"Ism: {user['full_name']}\n"
-            f"Telefon: {user['phone']}\n"
+            f"Ism: {user_dict.get('full_name', '—')}\n"
+            f"Telefon: {user_dict.get('phone', '—')}\n"
         )
         await message.answer(text, parse_mode="HTML", reply_markup=cabinet_keyboard("client"))
 
