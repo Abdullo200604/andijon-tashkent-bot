@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 import random
 import logging
 
@@ -103,8 +103,7 @@ async def take_order_cb(call: CallbackQuery, bot: Bot):
     client_username = f"@{client_user['username']}" if client_user and client_user["username"] else "—"
     
     # Lokatsiya linki
-    if order.get("latitude") and order.get("longitude"):
-        loc_link = f"\n📍 <a href='https://www.google.com/maps?q={order['latitude']},{order['longitude']}'>Xaritada ko'rish</a>"
+    loc_link = f"\n📍 <a href='https://www.google.com/maps?q={order['latitude']},{order['longitude']}'>Xaritada ko'rish</a>" if order.get("latitude") and order.get("longitude") else ""
 
     # Haydovchiga mijoz raqamini va lakatsiyasini yuborish
     await call.message.edit_text(
