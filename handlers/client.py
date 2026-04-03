@@ -4,14 +4,22 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
-from config import ORDER_TIMEOUT
+from config import ORDER_TIMEOUT, REBROADCAST_LIMIT
 from database import (
     get_user, create_order, get_all_active_taxi_ids,
-    expire_order, get_order, add_discount_balance, get_client_orders
+    expire_order, get_order, add_discount_balance, get_client_orders,
+    log_analytics, increment_rebroadcast_count, get_order_by_idempotency_key,
+    cancel_order_db
 )
-from keyboards import client_menu, cancel_keyboard, order_keyboard, location_keyboard, passengers_keyboard, cabinet_keyboard, back_to_cabinet
-from states import OrderForm, DiscountCalcForm
+from keyboards import (
+    client_menu, cancel_keyboard, order_keyboard, location_keyboard, 
+    passengers_keyboard, cabinet_keyboard, back_to_cabinet,
+    gender_keyboard, cancel_reason_keyboard, passenger_order_actions
+)
+from states import OrderForm, DiscountCalcForm, CancelForm
 from utils import is_valid_time, is_valid_location_name
+import json
+from datetime import datetime
 
 router = Router()
 
@@ -83,6 +91,22 @@ async def order_location(message: Message, state: FSMContext):
         return
 
     await state.update_data(lat=message.location.latitude, lon=message.location.longitude)
+    await state.set_state(OrderForm.gender)
+    await message.answer("👤 Jinsingizni tanlang:", reply_markup=gender_keyboard())
+
+
+@router.message(OrderForm.gender)
+async def order_gender(message: Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=client_menu())
+        return
+
+    if message.text not in ["👨 Erkak", "👩 Ayol", "🧑 Boshqa"]:
+        await message.answer("❌ Iltimos, tugmalardan birini tanlang.")
+        return
+
+    await state.update_data(gender=message.text)
     await state.set_state(OrderForm.order_time)
     await message.answer("🕒 Qaysi vaqtda ketasiz?\n\n(Misol: 14:00, Hozir...)", reply_markup=cancel_keyboard())
 
@@ -149,62 +173,101 @@ async def order_contact_phone(message: Message, state: FSMContext, bot: Bot):
         contact_phone = message.contact.phone_number
     
     data = await state.get_data()
-    await state.clear()
-
+    # Idempotency key: user_id + locations + time + passengers + current_hour
+    # Bu orqali 1 soat ichida bir xil buyurtmani 2 marta yuborishni oldini olamiz
+    idempotency_raw = f"{message.from_user.id}:{data['from_loc']}:{data['to_loc']}:{data['passengers']}:{datetime.now().strftime('%Y-%m-%d-%H')}"
+    
     user = await get_user(message.from_user.id)
     if not user or not user["phone"]:
         await message.answer("❌ Telefon raqamingiz topilmadi, qayta /start bosing.")
+        return
+
+    # Avval mavjudligini tekshiramiz (Double click protection)
+    existing_order = await get_order_by_idempotency_key(idempotency_raw)
+    if existing_order:
+        await state.clear()
+        await message.answer("⚠️ Bu buyurtma allaqachon yuborilgan.", reply_markup=client_menu())
         return
 
     order_id = await create_order(
         message.from_user.id, data["from_loc"], data["to_loc"],
         data["order_time"], data["price"], user["phone"],
         data.get("lat"), data.get("lon"), data["passengers"],
-        contact_phone
+        data["gender"], contact_phone, idempotency_raw
+    )
+    
+    await state.clear()
+    await log_analytics("order_created", message.from_user.id, order_id)
+
+    await message.answer(
+        f"✅ Buyurtmangiz yuborildi! (ID: #{order_id})\nTaxi haydovchilar xabardor qilindi.\n⏱ {ORDER_TIMEOUT} daqiqa ichida javob keladi...", 
+        reply_markup=passenger_order_actions(order_id)
     )
 
-    await message.answer("✅ Buyurtmangiz yuborildi! Taxi haydovchilar xabardor qilindi.\n⏱ 5 daqiqa ichida javob keladi...", reply_markup=client_menu())
+    await broadcast_order(bot, order_id)
+
+
+async def broadcast_order(bot: Bot, order_id: int):
+    """Buyurtmani barcha faol haydovchilarga yuborish"""
+    order = await get_order(order_id)
+    if not order or order["status"] != "pending":
+        return
 
     taxi_ids = await get_all_active_taxi_ids()
+    username = f"@{order['username']}" if order.get('username') else "—" # Fix: fetch user separately if needed
     
-    username = f"@{message.from_user.username}" if message.from_user.username else "—"
+    # User ma'lumotlarini qayta olish (username uchun)
+    client = await get_user(order["client_id"])
+    username = f"@{client['username']}" if client and client["username"] else "—"
+    
     order_text = (
         f"🆕 <b>Yangi buyurtma #{order_id}</b>\n\n"
         f"👤 Telegram: {username}\n"
-        f"👥 Yo'lovchilar: {data['passengers']}\n"
-        f"📍 <b>{data['from_loc']}</b> → <b>{data['to_loc']}</b>\n"
-        f"🕒 {data['order_time']}\n"
-        f"💰 {data['price']}\n"
-        f"📞 Tel: {contact_phone}"
+        f"👤 Jins: {order['gender']}\n"
+        f"👥 Yo'lovchilar: {order['passengers']}\n"
+        f"📍 <b>{order['from_loc']}</b> → <b>{order['to_loc']}</b>\n"
+        f"🕒 {order['order_time']}\n"
+        f"💰 {order['price']}\n"
+        f"📞 Tel: {order['contact_phone'] or order['phone']}"
     )
 
     sent_messages: dict[int, int] = {}
+    tasks = []
     for taxi_id in taxi_ids:
-        try:
-            sent = await bot.send_message(taxi_id, order_text, parse_mode="HTML", reply_markup=order_keyboard(order_id))
-            sent_messages[taxi_id] = sent.message_id
-            print(f"DEBUG: Buyurtma #{order_id} haydovchi {taxi_id} ga yuborildi.")
-        except Exception as e:
-            print(f"DEBUG: Buyurtma #{order_id}ni haydovchi {taxi_id}ga yuborishda xato: {e}")
+        tasks.append(bot.send_message(taxi_id, order_text, parse_mode="HTML", reply_markup=order_keyboard(order_id)))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for i, res in enumerate(results):
+        if isinstance(res, Message):
+            sent_messages[taxi_ids[i]] = res.message_id
 
     active_order_messages[order_id] = sent_messages
-    asyncio.create_task(_order_timeout(bot, order_id, message.from_user.id))
+    await log_analytics("order_broadcasted", None, order_id, {"count": len(sent_messages)})
+    asyncio.create_task(_order_timeout(bot, order_id, order["client_id"]))
 
 
 async def _order_timeout(bot: Bot, order_id: int, client_id: int):
     await asyncio.sleep(ORDER_TIMEOUT)
     order = await get_order(order_id)
     if order and order["status"] == "pending":
-        await expire_order(order_id)
-        try:
-            await bot.send_message(client_id, "❌ Uzr, hozircha bo'sh taxi topilmadi.\nIltimos, keyinroq urinib ko'ring. 🙏")
-        except: pass
+        if order["rebroadcast_count"] < REBROADCAST_LIMIT:
+            await increment_rebroadcast_count(order_id)
+            try:
+                await bot.send_message(client_id, "🔍 Xaydovchi topilmadi — qayta qidirilyapti...")
+            except: pass
+            await broadcast_order(bot, order_id)
+            await log_analytics("order_rebroadcasted", None, order_id)
+        else:
+            await expire_order(order_id)
+            try:
+                await bot.send_message(client_id, "❌ Uzr, bo'sh taxi topilmadi.\nIltimos, keyinroq urinib ko'ring. 🙏", reply_markup=client_menu())
+            except: pass
 
-        if order_id in active_order_messages:
-            for taxi_id, msg_id in active_order_messages[order_id].items():
-                try: await bot.edit_message_text("⌛ Buyurtma vaqti o'tdi.", chat_id=taxi_id, message_id=msg_id)
-                except: pass
-            del active_order_messages[order_id]
+            if order_id in active_order_messages:
+                for taxi_id, msg_id in active_order_messages[order_id].items():
+                    try: await bot.edit_message_text("⌛ Buyurtma vaqti o'tdi.", chat_id=taxi_id, message_id=msg_id)
+                    except: pass
+                del active_order_messages[order_id]
 
 
 # ─── KABINET VA TARIX ───────────────────────────────────────────────────────── (Handlers moved to start.py)
@@ -275,3 +338,59 @@ async def process_discount_price(message: Message, state: FSMContext, bot: Bot):
         try:
             await bot.send_message(taxi_id, f"🎁 <b>Bonus qo'shildi!</b>\n\nMijozga qilingan {percent}% chegirma sababli hisobingizga <b>{discount_amount:,} so'm</b> bonus qo'shildi!", parse_mode="HTML")
         except: pass
+
+
+# ─── BEKOR QILISH ─────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("cancel_order:"))
+async def start_client_cancel(call: CallbackQuery, state: FSMContext):
+    order_id = int(call.data.split(":")[1])
+    await state.update_data(cancel_order_id=order_id)
+    await state.set_state(CancelForm.reason_choice)
+    await call.message.answer("📦 Buyurtmani bekor qilish sababini tanlang:", reply_markup=cancel_reason_keyboard("client"))
+    await call.answer()
+
+
+@router.callback_query(CancelForm.reason_choice, F.data.startswith("cancel_res:"))
+async def process_client_cancel_reason(call: CallbackQuery, state: FSMContext, bot: Bot):
+    reason_key = call.data.split(":")[1]
+    data = await state.get_data()
+    order_id = data.get("cancel_order_id")
+    
+    if reason_key == "other":
+        await state.set_state(CancelForm.reason_text)
+        await call.message.answer("📝 Iltimos, bekor qilish sababini yozing:")
+        await call.answer()
+        return
+
+    reason_map = {"plans": "Rejalar o'zgardi", "gender": "Jins mos emas", "car": "Mashina mos emas"}
+    reason = reason_map.get(reason_key, "Boshqa")
+    await finalize_cancellation(call.message, state, bot, order_id, "client", reason)
+    await call.answer("Bekor qilindi.")
+
+
+@router.message(CancelForm.reason_text)
+async def process_client_cancel_text(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    order_id = data.get("cancel_order_id")
+    await finalize_cancellation(message, state, bot, order_id, "client", message.text)
+
+
+async def finalize_cancellation(message, state, bot, order_id, role, reason):
+    from database import log_cancellation, cancel_order_db
+    user_id = message.chat.id
+    
+    await cancel_order_db(order_id, role, reason)
+    await log_cancellation(user_id, role, order_id, reason)
+    await log_analytics(f"{role}_cancel", user_id, order_id, {"reason": reason})
+    
+    await state.clear()
+    await bot.send_message(user_id, f"✅ Buyurtma bekor qilindi. Sabab: {reason}", reply_markup=client_menu())
+    
+    # Haydovchilarga xabar berish
+    if order_id in active_order_messages:
+        for taxi_id, msg_id in active_order_messages[order_id].items():
+            try:
+                await bot.edit_message_text(f"❌ Buyurtma #{order_id} mijoz tomonidan bekor qilindi.", chat_id=taxi_id, message_id=msg_id)
+            except: pass
+        del active_order_messages[order_id]

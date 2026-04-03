@@ -44,4 +44,6 @@ TARIFFS = {
 }
 
 # Buyurtma kutish vaqti (soniyada)
-ORDER_TIMEOUT = 300  # 5 daqiqa
+ORDER_TIMEOUT = 30           # 30 soniya timeout
+REBROADCAST_LIMIT = 2        # Necha marta qayta yuborish
+DRIVER_LOCATION_MAX_AGE = 60 # Soniya — haydovchi lokatsiyasi eskirgan deb hisoblanishi uchun

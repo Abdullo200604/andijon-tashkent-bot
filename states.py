@@ -9,10 +9,17 @@ class OrderForm(StatesGroup):
     from_loc = State()    # Qayerdan
     to_loc = State()      # Qayerga
     location = State()    # Geolokatsiya
+    gender = State()      # Jins (Erkak/Ayol/Boshqa)
     order_time = State()  # Vaqt
     price = State()       # Narx
     passengers = State()  # Yo'lovchilar soni
     contact_phone = State()
+
+
+class CancelForm(StatesGroup):
+    """Buyurtmani bekor qilish sabablari"""
+    reason_choice = State() # Ro'yxatdan tanlash
+    reason_text = State()   # Boshqa (matn ko'rinishida)
 
 
 class TaxiAnnounceForm(StatesGroup):

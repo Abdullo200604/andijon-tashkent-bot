@@ -125,6 +125,49 @@ def admin_stats_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def gender_keyboard() -> ReplyKeyboardMarkup:
+    """Jins tanlash tugmalari"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👨 Erkak"), KeyboardButton(text="👩 Ayol")],
+            [KeyboardButton(text="🧑 Boshqa")],
+            [KeyboardButton(text="❌ Bekor qilish")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def cancel_reason_keyboard(role: str) -> InlineKeyboardMarkup:
+    """Bekor qilish sabablari"""
+    reasons = []
+    if role == "client":
+        reasons = [
+            ("Rejalar o'zgardi", "plans"),
+            ("Jins mos emas", "gender"),
+            ("Mashina mos emas", "car"),
+            ("Boshqa", "other")
+        ]
+    else: # driver
+        reasons = [
+            ("Yo'l yopiq / Tirbandlik", "traffic"),
+            ("Vaqt mos emas", "time"),
+            ("Mijoz javob bermadi", "no_answer"),
+            ("Boshqa", "other")
+        ]
+    
+    btns = [[InlineKeyboardButton(text=r[0], callback_data=f"cancel_res:{r[1]}")] for r in reasons]
+    return InlineKeyboardMarkup(inline_keyboard=btns)
+
+
+def contact_phone_keyboard(phone):
+    kb = [
+        [KeyboardButton(text=f"{phone}", request_contact=True)],
+        [KeyboardButton(text="❌ Bekor qilish")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+
+
 def back_to_admin() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_cancel")]
@@ -151,13 +194,23 @@ def order_keyboard(order_id: int) -> InlineKeyboardMarkup:
     """Taxi uchun buyurtmani qabul qilish / rad etish"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(
-                text="✅ Олиш", callback_data=f"take:{order_id}"
-            ),
-            InlineKeyboardButton(
-                text="❌ Бекор қилиш", callback_data=f"decline:{order_id}"
-            ),
+            InlineKeyboardButton(text="✅ Қабул қиламан", callback_data=f"take:{order_id}"),
+            InlineKeyboardButton(text="❌ Рад этиш", callback_data=f"decline:{order_id}"),
         ]
+    ])
+
+
+def passenger_order_actions(order_id: int) -> InlineKeyboardMarkup:
+    """Mijoz uchun buyurtma amallari (bekor qilish)"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"cancel_order:{order_id}")]
+    ])
+
+
+def driver_order_actions(order_id: int) -> InlineKeyboardMarkup:
+    """Qabul qilingan buyurtmani haydovchi bekor qilishi uchun"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Safarni bekor qilish", callback_data=f"driver_cancel:{order_id}")]
     ])
 
 

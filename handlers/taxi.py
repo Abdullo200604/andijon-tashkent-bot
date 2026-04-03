@@ -3,10 +3,11 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from config import GROUP_ID
-from database import get_user, get_active_subscription, get_taxi_orders
+from database import get_user, get_active_subscription, get_taxi_orders, update_driver_location_db
 from keyboards import taxi_menu, cancel_keyboard, subscription_keyboard, tariff_keyboard, cabinet_keyboard, back_to_cabinet
 from states import TaxiAnnounceForm
 from utils import is_valid_location_name
+from datetime import datetime
 
 router = Router()
 
@@ -143,4 +144,15 @@ async def back_to_taxi_cb(call: CallbackQuery):
     await call.answer()
 
 
-# Handler moved to start.py
+@router.message(F.location)
+async def driver_location_handler(message: Message):
+    """Haydovchi lokatsiyasini bazada yangilash"""
+    user = await get_user(message.from_user.id)
+    if not user or user["role"] != "taxi":
+        return
+
+    lat = message.location.latitude
+    lon = message.location.longitude
+    await update_driver_location_db(message.from_user.id, lat, lon)
+    # No reply needed to keep it quiet, or a subtle acknowledgment.
+    # await message.reply("📍 Joylashuv qabul qilindi.")

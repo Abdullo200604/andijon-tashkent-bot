@@ -54,15 +54,54 @@ async def init_db():
                 to_loc     TEXT,
                 latitude   REAL,
                 longitude  REAL,
+                gender     TEXT,            -- 'erkak', 'ayol', 'boshqa'
                 order_time TEXT,
                 price      TEXT,
                 phone      TEXT,            -- Ro'yxatdan o'tgan raqam
                 contact_phone TEXT,         -- Buyurtma uchun qo'shimcha raqam
                 passengers TEXT,
-                status     TEXT DEFAULT 'pending',  -- 'pending', 'taken', 'expired'
+                status     TEXT DEFAULT 'pending',  -- 'pending', 'taken', 'expired', 'cancelled'
                 taken_by   INTEGER,
+                idempotency_key TEXT UNIQUE,
+                rebroadcast_count INTEGER DEFAULT 0,
+                cancel_reason TEXT,
+                cancel_by     TEXT,         -- 'client', 'driver'
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (client_id) REFERENCES users(telegram_id)
+            )
+        """)
+
+        # Bekor qilishlar jadvali
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS cancellations (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER,
+                role       TEXT,
+                order_id   INTEGER,
+                reason     TEXT,
+                timestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Analytics jadvali
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS analytics (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_name TEXT,
+                user_id    INTEGER,
+                order_id   INTEGER,
+                meta       TEXT,            -- JSON string
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Haydovchi lokatsiyalari
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS driver_locations (
+                user_id    INTEGER PRIMARY KEY,
+                latitude   REAL,
+                longitude  REAL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -79,31 +118,22 @@ async def init_db():
 
 
         # Versiya yangilash (agar ustunlar bo'lmasa qo'shish)
-        try:
-            await db.execute("ALTER TABLE orders ADD COLUMN latitude REAL")
-            await db.execute("ALTER TABLE orders ADD COLUMN longitude REAL")
-        except aiosqlite.OperationalError:
-            pass
-
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN discount_balance INTEGER DEFAULT 0")
-        except aiosqlite.OperationalError:
-            pass
-
-        try:
-            await db.execute("ALTER TABLE orders ADD COLUMN passengers TEXT")
-        except aiosqlite.OperationalError:
-            pass
-
-        try:
-            await db.execute("ALTER TABLE orders ADD COLUMN contact_phone TEXT")
-        except aiosqlite.OperationalError:
-            pass
-
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0")
-        except aiosqlite.OperationalError:
-            pass
+        # Ustunlarni tekshirish va qo'shish (migratsiya)
+        migrations = [
+            ("orders", "gender", "TEXT"),
+            ("orders", "idempotency_key", "TEXT UNIQUE"),
+            ("orders", "rebroadcast_count", "INTEGER DEFAULT 0"),
+            ("orders", "cancel_reason", "TEXT"),
+            ("orders", "cancel_by", "TEXT"),
+            ("users", "balance", "INTEGER DEFAULT 0"),
+            ("users", "discount_balance", "INTEGER DEFAULT 0")
+        ]
+        
+        for table, column, col_type in migrations:
+            try:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+            except aiosqlite.OperationalError:
+                pass
 
         await db.commit()
 
@@ -324,17 +354,87 @@ async def count_payments() -> int:
             return row[0] if row else 0
 
 
+# ─── ANALYTICS & CANCELLATIONS ────────────────────────────────────────────────
+
+async def log_analytics(event_name: str, user_id: int = None, order_id: int = None, meta: dict = None):
+    """Analytics eventini bazaga yozish"""
+    import json
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO analytics (event_name, user_id, order_id, meta)
+            VALUES (?, ?, ?, ?)
+        """, (event_name, user_id, order_id, json.dumps(meta) if meta else None))
+        await db.commit()
+
+
+async def log_cancellation(user_id: int, role: str, order_id: int, reason: str):
+    """Bekor qilish sababini saqlash"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO cancellations (user_id, role, order_id, reason)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, role, order_id, reason))
+        await db.commit()
+
+
+# ─── DRIVER LOCATIONS ─────────────────────────────────────────────────────────
+
+async def update_driver_location_db(user_id: int, lat: float, lon: float):
+    """Haydovchi lokatsiyasini yangilash"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO driver_locations (user_id, latitude, longitude, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id) DO UPDATE SET
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
+                updated_at = datetime('now')
+        """, (user_id, lat, lon))
+        await db.commit()
+
+
+async def get_driver_location(user_id: int):
+    """Haydovchi lokatsiyasini va yangilangan vaqtini olish"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT *, (strftime('%s', 'now') - strftime('%s', updated_at)) as age_sec FROM driver_locations WHERE user_id = ?",
+            (user_id,)
+        ) as cursor:
+            return await cursor.fetchone()
+
+
 # ─── ORDERS ───────────────────────────────────────────────────────────────────
 
-async def create_order(client_id, from_loc, to_loc, order_time, price, phone, lat, lon, passengers, contact_phone=None):
+async def create_order(client_id, from_loc, to_loc, order_time, price, phone, lat, lon, passengers, gender, contact_phone, idempotency_key):
+    """Yangi buyurtma yaratish (Idempotent)"""
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("""
-            INSERT INTO orders (client_id, from_loc, to_loc, order_time, price, phone, latitude, longitude, passengers, contact_phone)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (client_id, from_loc, to_loc, order_time, price, phone, lat, lon, passengers, contact_phone)) as cursor:
-            order_id = cursor.lastrowid
-            await db.commit()
-            return order_id
+        try:
+            async with db.execute("""
+                INSERT INTO orders (client_id, from_loc, to_loc, order_time, price, phone, latitude, longitude, passengers, gender, contact_phone, idempotency_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (client_id, from_loc, to_loc, order_time, price, phone, lat, lon, passengers, gender, contact_phone, idempotency_key)) as cursor:
+                order_id = cursor.lastrowid
+                await db.commit()
+                return order_id
+        except aiosqlite.IntegrityError:
+            # Idempotency key conflict - return existing order
+            async with db.execute("SELECT id FROM orders WHERE idempotency_key = ?", (idempotency_key,)) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+
+
+async def get_order_by_idempotency_key(key: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM orders WHERE idempotency_key = ?", (key,)) as cursor:
+            return await cursor.fetchone()
+
+
+async def increment_rebroadcast_count(order_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE orders SET rebroadcast_count = rebroadcast_count + 1 WHERE id = ?", (order_id,))
+        await db.commit()
 
 
 async def get_order(order_id: int):
@@ -360,6 +460,26 @@ async def expire_order(order_id: int):
         await db.execute("""
             UPDATE orders SET status = 'expired'
             WHERE id = ? AND status = 'pending'
+        """, (order_id,))
+        await db.commit()
+
+
+async def cancel_order_db(order_id: int, role: str, reason: str):
+    """Buyurtmani bekor qilish"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE orders SET status = 'cancelled', cancel_by = ?, cancel_reason = ?
+            WHERE id = ?
+        """, (role, reason, order_id))
+        await db.commit()
+
+
+async def reset_order_to_pending(order_id: int):
+    """Buyurtmani qayta ochiq holatga keltirish (agar haydovchi bekor qilsa)"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE orders SET status = 'pending', taken_by = NULL
+            WHERE id = ?
         """, (order_id,))
         await db.commit()
 
